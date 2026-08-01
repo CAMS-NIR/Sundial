@@ -152,7 +152,7 @@ public sealed class App : Application
             Icon = LoadTrayIcon(),
         };
         // 左键单击：把桌宠拉回可见处。Windows 用户对「点托盘图标 = 把窗口找回来」有肌肉记忆
-        tray.Clicked += (_, _) => window.EnsureVisible();
+        tray.Clicked += (_, _) => window.BringToFront();   // 左键只是唤到前面，不挪位置
 
         // TrayIcon 要挂到 Application 上才会真正注册进系统托盘
         TrayIcon.SetIcons(this, new TrayIcons { tray });

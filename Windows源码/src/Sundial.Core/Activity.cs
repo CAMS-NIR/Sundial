@@ -412,11 +412,16 @@ public sealed class ActivityWatcher
                 // 「主回合在忙」的判据，必须重新探测后台是否还活着
                 if (!st.Busy || st.Background)
                 {
-                    // 目录遍历较贵，3 秒内复用上次结果（相对 90 秒的 BgFresh，误差可忽略）
+                    // 目录遍历较贵，3 秒内复用上次结果（相对 90 秒的 BgFresh，误差可忽略）。
+                    // 计数必须放在这道门**里面**：轮询是 0.8 秒一次，放外面的话
+                    // 「连续两次探空」实际只隔 1.6 秒，而两次真正的探测要相隔 3 秒——
+                    // 等于门形同虚设，后台断断续续写入时会被提前判成跑完了
+                    var probed = false;
                     if ((DateTimeOffset.Now - st.BgProbedAt).TotalSeconds >= 3)
                     {
                         st.BgNewest = BackgroundActivity(s.Id, path, mtime);
                         st.BgProbedAt = DateTimeOffset.Now;
+                        probed = true;
                     }
                     // 新鲜度按「探测那一刻」算：BgNewest 是缓存值，拿它跟当前时间比，
                     // 会凭空多出最多 3 秒，正好把在跑的后台任务判成停了
@@ -434,7 +439,7 @@ public sealed class ActivityWatcher
                     else
                     {
                         // 一次探空不算完：后台写入本来就断断续续，连续两次才认
-                        st.BgStaleHits += 1;
+                        if (probed) st.BgStaleHits += 1;
                         if (st.BgStaleHits >= 2)
                         {
                             // 后台任务刚跑完（上一轮还是 Background）：也算一次「出结果」
@@ -443,6 +448,10 @@ public sealed class ActivityWatcher
                                 st.Unread = true;
                                 st.FinishedAt = st.BgNewest ?? DateTimeOffset.Now;
                             }
+                            // 必须一并清掉「无响应」。进入 Background 之前几乎总是先被
+                            // 超时判成失联，不清的话方块会一直写「无响应 · 已 X 无更新」，
+                            // 而不是「未读 · 刚刚完成」
+                            st.Stalled = false;
                             st.BgSince = null;
                             st.Background = false;
                             st.Busy = false;   // 否则下一轮进不来这里，探测彻底停摆

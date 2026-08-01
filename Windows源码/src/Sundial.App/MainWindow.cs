@@ -583,6 +583,16 @@ public sealed class MainWindow : Window
 
     /// <summary>把桌宠拽回主屏可见处。托盘左键和菜单都用它——
     /// 窗口被拖到已拔掉的显示器上时，这是唯一的退路。</summary>
+    /// <summary>只把窗口调到前面来，**不挪位置**。托盘左键用这个。
+    /// 早先托盘左键直接调 EnsureVisible，结果点一下桌宠就瞬移到右下角，
+    /// 还把新坐标同步写进配置——你摆好的位置就这么没了，重启也回不来。</summary>
+    public void BringToFront()
+    {
+        if (_dialogs == 0) Topmost = true;   // 有对话框开着时不许重新置顶，否则会压住它
+        Show();
+    }
+
+    /// <summary>把窗口搬回屏幕右下角并记住新位置。只该由菜单里那一条显式触发。</summary>
     public void EnsureVisible()
     {
         var wa = (Screens.Primary ?? Screens.All.FirstOrDefault())?.WorkingArea;

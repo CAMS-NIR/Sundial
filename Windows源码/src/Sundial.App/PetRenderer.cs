@@ -34,7 +34,6 @@ public sealed class PetRenderer
     /// <summary>两股力叠加后的封顶：收起时窗口只有 88pt 见方（半径 44），
     /// 光芒伸过头会被窗口边缘直接切掉。</summary>
     public const double RayPullCap = 18;
-    private const double RippleDur = 1.05;
 
     // MARK: 动画状态
 
@@ -55,8 +54,6 @@ public sealed class PetRenderer
     private Point _eyeShift;                  // 眼珠看向鼠标
     private double _perk;                     // 0–1，被靠近时的「精神一振」
     private readonly List<BlockAnim> _blocks = new();
-    private DateTimeOffset? _lastSeenFetch;   // 用来发现「刚取到新数据」
-    private double _rippleStart = -99;        // 刷新光波的起始时刻
 
     // 必须写 new()：结构体字段默认是全零，不会走无参构造，_startedAt 就拿不到 -99
     private Tween _hoverTween = new();
@@ -97,7 +94,6 @@ public sealed class PetRenderer
             if (_mouse is not null) return true;                 // 光芒引力
             if (Math.Abs(HoverProgress - (_model.Hovered || _model.DetailsPinned ? 1 : 0)) > 0.001) return true;
             if (Math.Abs(ExpandProgress - ExpandTargetValue) > 0.001) return true;
-            if (_t - _rippleStart < RippleDur) return true;      // 刷新光波
             return false;
         }
     }
@@ -282,13 +278,6 @@ public sealed class PetRenderer
             _nextBlinkAt = _t + 2.4 + Random.Shared.NextDouble() * 3.6;   // 2.4–6.0 秒
         }
 
-        // 取到新数据就从太阳荡出一圈光波，扫过两侧的仪表。
-        // 「刚刚更新过」这件事原先只写在悬停详情里，平时根本看不见
-        if (_model.LastFetch is { } f && f != _lastSeenFetch)
-        {
-            if (_lastSeenFetch is not null && !ReduceMotion) _rippleStart = _t;  // 首次加载不放
-            _lastSeenFetch = f;
-        }
     }
 
     /// <summary>超出作用半径就置空，免得一直按满帧重绘。</summary>
@@ -396,15 +385,22 @@ public sealed class PetRenderer
         _blockRects.Clear();
         _loginButtonRect = default;
 
-        if (ReduceTransparency)
+        // 玻璃已被隐藏，这里补一个不透明背板，保证可读。
+        // 但完全收起时同样不画——闲着只剩一颗太阳，没有内容需要背板托底。
+        // 少了这道门的话，空闲时桌面上会是一颗太阳垫在 88×88 的深灰实心圆盘上；
+        // 而且 WindowBackground 是 FromRgb（alpha 恒 255），必须自己乘淡入系数，
+        // 否则展开动画期间背板是「啪」地出现的
+        var e0 = ExpandProgress;
+        if (ReduceTransparency && e0 > 0.01)
         {
-            // 玻璃已被隐藏，这里补一个不透明背板，保证可读
-            var e0 = ExpandProgress;
             var r0 = Math.Min(bounds.Width, bounds.Height) / 2;
             var radius0 = r0 + (CardRadius - r0) * e0;
-            ctx.DrawRectangle(new SolidColorBrush(Theme.WindowBackground), null, bounds,
-                              Math.Min(radius0, bounds.Width / 2),
-                              Math.Min(radius0, bounds.Height / 2));
+            var backAlpha = Sundial.App.Theme.EaseInOut(Math.Clamp(e0 / 0.45, 0, 1));
+            ctx.DrawRectangle(
+                new SolidColorBrush(Sundial.App.Theme.WithAlpha(Theme.WindowBackground, backAlpha)),
+                null, bounds,
+                Math.Min(radius0, bounds.Width / 2),
+                Math.Min(radius0, bounds.Height / 2));
         }
 
         // 卡片底由窗口层的半透明材质负责，这里只画内容
@@ -428,7 +424,6 @@ public sealed class PetRenderer
             using (ctx.PushOpacity(g))
                 DrawGauges(ctx, card, rowMidY, 0.84 + 0.16 * g);
         }
-        DrawRefreshRipple(ctx, sunAt, card);
         if (e <= 0.01) return;   // 完全收起时只剩太阳
 
         var y = card.Y + 10 + TopRowH + 2;
@@ -721,22 +716,6 @@ public sealed class PetRenderer
 
     // MARK: 两个并排仪表（已用比例）
 
-    /// <summary>刷新光波：从太阳荡出去的一圈涟漪，扫过两侧仪表后散掉。</summary>
-    private void DrawRefreshRipple(DrawingContext ctx, Point center, Rect card)
-    {
-        var age = _t - _rippleStart;
-        if (age < 0 || age >= RippleDur) return;
-        var p = age / RippleDur;
-        var ease = 1 - Math.Pow(1 - p, 2.2);              // 先快后慢，像水波扩散
-        // 半径不能超过窗口的**内切**半径，否则圆环出界、只剩四个角上的弧。
-        // 收起态尤其明显：窗口 88×88，内切半径只有 44，而 0.62×88=54.6 早就出去了。
-        var maxR = Math.Min(card.Width, card.Height) / 2 - 2;
-        var rad = 16 + (maxR - 16) * ease;
-        var alpha = 0.34 * Math.Pow(1 - p, 1.7);
-        var pen = new Pen(new SolidColorBrush(Theme.WithAlpha(Theme.CoralLight, alpha)),
-                          3.2 * (1 - p) + 0.8);
-        ctx.DrawEllipse(null, pen, center, rad, rad);
-    }
 
     private void DrawGauges(DrawingContext ctx, Rect card, double midY, double scale)
     {

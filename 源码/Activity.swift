@@ -291,11 +291,16 @@ final class ActivityWatcher {
                 // background 为真时手里的 busy 是上一轮自己设的，不能当作
                 // 「主回合在忙」的判据，必须重新探测后台是否还活着
                 if !st.busy || st.background {
-                    // 目录遍历较贵，3 秒内复用上次结果（bgFresh 是 25 秒，误差可忽略）
+                    // 目录遍历较贵，3 秒内复用上次结果（bgFresh 是 90 秒，误差可忽略）。
+                    // 计数必须放在这道门**里面**：轮询是 0.8 秒一次，放外面的话
+                    // 「连续两次探空」实际只隔了 1.6 秒，而两次真正的探测要相隔 3 秒——
+                    // 等于门形同虚设，后台断断续续写入时会被提前判成跑完了
+                    var probed = false
                     if Date().timeIntervalSince(st.bgProbedAt) >= 3 {
                         st.bgNewest = backgroundActivity(sessionID: s.id, transcript: url,
                                                          after: mtime)
                         st.bgProbedAt = Date()
+                        probed = true
                     }
                     // 新鲜度按「探测那一刻」算：bgNewest 是缓存值，拿它跟当前时间比，
                     // 会凭空多出最多 3 秒，正好把在跑的后台任务判成停了
@@ -311,13 +316,18 @@ final class ActivityWatcher {
                         st.bgStaleHits = 0
                     } else {
                         // 一次探空不算完：后台写入本来就断断续续，连续两次才认
-                        st.bgStaleHits += 1
+                        if probed { st.bgStaleHits += 1 }
                         if st.bgStaleHits >= 2 {
                             // 后台任务刚跑完（上一轮还是 background）：也算一次「出结果」
                             if st.background, !reads.contains(s.id) {
                                 st.unread = true
                                 st.finishedAt = st.bgNewest ?? Date()
                             }
+                            // 必须一并清掉「无响应」。进入 background 之前几乎总是先被
+                            // 超时判成失联（本机真实记录里后台段开始时主记录从来不是
+                            // end_turn），不清的话方块会一直写「无响应 · 已 X 无更新」，
+                            // 而不是「未读 · 刚刚完成」——实测 88 段后台运行有 10 段会踩到
+                            st.stalled = false
                             st.bgSince = nil
                             st.background = false
                             st.busy = false   // 否则下一轮进不来这里，探测彻底停摆
