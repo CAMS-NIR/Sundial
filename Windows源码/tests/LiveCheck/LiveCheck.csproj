@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- 拿本机真实的 Claude Code 会话记录跑 Core 层。
+       路径写法在 macOS 和 Windows 上一致，所以这里跑通＝那边逻辑也通。 -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/Sundial.Core/Sundial.Core.csproj" />
+  </ItemGroup>
+</Project>

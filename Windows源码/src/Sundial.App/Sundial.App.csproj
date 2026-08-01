@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <AssemblyName>Sundial</AssemblyName>
+    <TargetFramework>net10.0</TargetFramework>
+    <DebugType>none</DebugType>            <!-- 发给别人不需要 .pdb -->
+    <Version>1.0.0</Version>
+    <Company>cams-nir</Company>
+    <Product>Sundial</Product>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!-- 全部用 C# 构建界面，不用 .axaml 标记文件，绕开 XAML 编译器 -->
+    <EnableDefaultAvaloniaItems>false</EnableDefaultAvaloniaItems>
+    <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
+    <!-- 托盘/窗口都不需要 Dock 图标，Windows 上也不进任务栏 -->
+    <InvariantGlobalization>false</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia" Version="11.3.18" />
+    <PackageReference Include="Avalonia.Desktop" Version="11.3.18" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.18" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Sundial.Core\Sundial.Core.csproj" />
+  </ItemGroup>
+
+</Project>

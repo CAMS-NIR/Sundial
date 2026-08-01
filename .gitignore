@@ -1,0 +1,20 @@
+# 构建产物
+.build/
+bin/
+obj/
+# 注意：不能写 *.app/ —— macOS 上 git 大小写不敏感，那会把
+# Windows 侧的 Sundial.App/（整个界面层）一起排除掉
+/Sundial.app/
+*.exe
+*.zip
+Windows源码/发给朋友-Windows/Sundial.exe
+
+# 图标中间产物（.icns 本身要入库）
+源码/图标/*.iconset/
+源码/图标/.gen
+
+# 备份目录
+*-备份-*/
+
+# macOS
+.DS_Store

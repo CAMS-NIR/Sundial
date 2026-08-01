@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- 离屏把界面渲染成 PNG，用来在 Mac 上肉眼验证 Windows 版的画面。
+       不参与发布，只是开发时的验证工具。 -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Avalonia" Version="11.3.18" />
+    <PackageReference Include="Avalonia.Headless" Version="11.3.18" />
+    <PackageReference Include="Avalonia.Skia" Version="11.3.18" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/Sundial.App/Sundial.App.csproj" />
+  </ItemGroup>
+</Project>
