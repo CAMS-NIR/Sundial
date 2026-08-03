@@ -34,11 +34,19 @@ public sealed class PetRenderer
     /// <summary>两股力叠加后的封顶：收起时窗口只有 88pt 见方（半径 44），
     /// 光芒伸过头会被窗口边缘直接切掉。</summary>
     public const double RayPullCap = 18;
+    public const double ResetLineH = 15;      // 「解封时间」那一行的高度
 
     // MARK: 动画状态
 
     private double _t;                        // 动画时钟
     private double _blinkUntil = -1;
+    /// <summary>0 = 清醒，1 = 打盹。与 macOS 版 PetView.sleepT 对齐——
+    /// 原来 IsSunAsleep 是硬布尔，颜色/眼睛/zzz/光芒转角全在一帧里瞬切</summary>
+    private double _sleepT = 1;
+    /// <summary>0 = 正常，1 = 用满了（眼睛变 ✖）</summary>
+    private double _deadT;
+    /// <summary>呼吸相位单独累积：醒着 1.6 睡着 1.0，直接改 sin 的频率会跳相</summary>
+    private double _breathPhase;
     private double _nextBlinkAt = 2;
     private double _spinPhase;                // 0–1 循环，保证首尾无缝
     private double _sunSpin;
@@ -80,6 +88,30 @@ public sealed class PetRenderer
 
     /// <summary>登录按钮的命中矩形；没画出来时是 default。</summary>
     public Rect LoginButtonRect => _loginButtonRect;
+
+    /// <summary>用满了的那条限额什么时候解封。**只有真的到上限（太阳变 ✖）才画这一行**——
+    /// 没满的时候「还有多久重置」是句废话，占一行还把卡片撑高；
+    /// 满了之后它反过来是唯一还想知道的事。多条同时超限就取最早解封的那条。
+    /// null = 没满，这一行不画。与 macOS 版 PetView.soonestResetText() 对齐。</summary>
+    public string? SoonestResetText()
+    {
+        var now = DateTimeOffset.Now;
+        DateTimeOffset? best = null;
+        string label = "";
+        foreach (var r in _model.Rows)
+        {
+            if (r.Percent < 100 || r.ResetAt is not { } d || d <= now) continue;
+            if (best is null || d < best) { best = d; label = r.Label; }
+        }
+        if (best is null) return null;
+        // 「每周 · 全部模型」这种长标签只取第一段，198pt 宽放不下整条
+        var idx = label.IndexOf(" · ", StringComparison.Ordinal);
+        var shortLabel = idx > 0 ? label[..idx] : label;
+        return $"{shortLabel} · {Usage.CompactReset(best)} 后解封";
+    }
+
+    /// <summary>解封那一行占的高度；不画时为 0。窗口高度要算进去。</summary>
+    public double ResetLineHeight => SoonestResetText() is null ? 0 : ResetLineH;
 
     /// <summary>有没有还在跑的动画。没有就不用每帧重绘，省电。
     /// 吉祥物的呼吸/眨眼/转动一直算「有动画」——停下来它就成了一张死图。</summary>
@@ -166,6 +198,9 @@ public sealed class PetRenderer
     public void Advance(double dt)
     {
         _t += dt;
+        _sleepT = Theme.SmoothStep(_sleepT, IsSunAsleep ? 1 : 0, dt, 3.2);
+        _deadT = Theme.SmoothStep(_deadT, _model.MaxPercent >= 100 ? 1 : 0, dt, 3.0);
+        _breathPhase += dt * (1.6 - 0.6 * _sleepT);
         // 转圈：归一化相位，wrap 时首尾严丝合缝
         if (_model.AnyBusy)
         {
@@ -176,6 +211,15 @@ public sealed class PetRenderer
         {
             _sunSpin += dt * 0.9;
             while (_sunSpin > Math.PI * 2) _sunSpin -= Math.PI * 2;
+        }
+        else if (_sunSpin != 0)
+        {
+            // 停下时归到最近的一个「卡点」。光芒是 9 次对称，转到 40° 的任意
+            // 整数倍看起来都一样，所以这一步看不见，但空闲姿态从此唯一确定
+            var step = Math.PI * 2 / RayCount;
+            var target = Math.Round(_sunSpin / step) * step;
+            _sunSpin = Theme.SmoothStep(_sunSpin, target, dt, 4);
+            if (Math.Abs(_sunSpin - target) < 0.0005) _sunSpin = target;
         }
         // 圆环数值缓动跟随。**按位置记，不按标签记**——右圈显示的是「最紧的那条周限额」，
         // 哪条最紧是会换人的（比如 Fable 被「全部模型」反超）。按标签记的话，换人时
@@ -202,9 +246,9 @@ public sealed class PetRenderer
 
         // 整只偏移 + 眼神跟随 + 精神一振：和光芒同一个「场」，一起缓动
         var field = ReduceMotion ? null : MouseField();
-        var asleep = IsSunAsleep;
-        double leanSign = asleep ? -1 : 1;         // 睡着时是躲，往反方向缩
-        double leanMax = asleep ? 3.0 : 4.2;
+        // 醒着凑过去(+4.2)、睡着躲开(-3.0)，按 _sleepT 连续插值，中间经过 0
+        double leanSign = 1;
+        double leanMax = 4.2 * (1 - _sleepT) - 3.0 * _sleepT;
         var lean = field is { } lf
             ? new Point(lf.Ux * leanMax * lf.Proximity * leanSign,
                         lf.Uy * leanMax * lf.Proximity * leanSign)
@@ -213,17 +257,19 @@ public sealed class PetRenderer
         // 有鼠标就看鼠标（比身体跟得更早也更满，离得还远就已经在看你了）；
         // 没人理它的时候，就时不时瞟一眼两侧的仪表盘
         Point eye;
-        if (asleep) eye = default;
-        else if (field is { } ef)
-            eye = new Point(ef.Ux * 1.7 * Math.Min(1, ef.Proximity * 2.4),
-                            ef.Uy * 1.7 * Math.Min(1, ef.Proximity * 2.4));
+        if (field is { } ef)
+        {
+            var k = 1.7 * (1 - _sleepT);      // 睡着时眼珠不再跟人走
+            eye = new Point(ef.Ux * k * Math.Min(1, ef.Proximity * 2.4),
+                            ef.Uy * k * Math.Min(1, ef.Proximity * 2.4));
+        }
         else eye = default;   // 没鼠标就正视前方，不再自己乱瞟
 
         _bodyLean = new Point(Theme.SmoothStep(_bodyLean.X, lean.X, dt, 7),
                               Theme.SmoothStep(_bodyLean.Y, lean.Y, dt, 7));
         _eyeShift = new Point(Theme.SmoothStep(_eyeShift.X, eye.X, dt, 12),
                               Theme.SmoothStep(_eyeShift.Y, eye.Y, dt, 12));
-        _perk = Theme.SmoothStep(_perk, (asleep || field is null) ? 0 : field.Value.Proximity, dt, 8);
+        _perk = Theme.SmoothStep(_perk, (field?.Proximity ?? 0) * (1 - _sleepT), dt, 8);
 
         // 会话块的出现/消失：还在的**按 visible 的顺序重排**，走掉的插回原位淡出。
         // 之前是「按旧顺序遍历、新块一律 append」，于是 ActivityWatcher 精心排的
@@ -308,8 +354,10 @@ public sealed class PetRenderer
     }
 
     /// <summary>第 i 根光芒的朝向，必须和 DrawPet 里的算法完全一致，否则受力方向会错位。</summary>
-    private double RayAngle(int i, bool asleep) =>
-        (double)i / RayCount * 2 * Math.PI + Math.PI / 8 + (asleep ? 0 : _sunSpin);
+    /// <summary>_sunSpin 在不忙时本来就停止累积，这里无条件带上即可。
+    /// 原来睡着时强行归零，等于整圈光芒在一帧里转回原位</summary>
+    private double RayAngle(int i) =>
+        (double)i / RayCount * 2 * Math.PI + Math.PI / 8 + _sunSpin;
 
     private static double WrapPi(double a)
     {
@@ -325,20 +373,19 @@ public sealed class PetRenderer
     private double[] RayPullTargets()
     {
         var outv = new double[RayCount];
-        var asleep = IsSunAsleep;
 
         if (MouseField() is { } f)
         {
             var mAngle = Math.Atan2(f.Uy, f.Ux);
-            double sign = asleep ? -1 : 1;                    // 睡着时反向：躲开鼠标
-            double maxPull = asleep ? 6 : RayMaxPull;
+            double sign = 1 - 2 * _sleepT;                    // 醒着凑过去，睡着躲开，连续过渡
+            double maxPull = RayMaxPull * (1 - _sleepT) + 6 * _sleepT;
             // 背对的一侧反向变化。醒着时只是一点点缀；睡着时「躲」要看得出来——
             // 近的一侧缩回去的同时，远的一侧要明显探出去，才像整个身子被推开。
             // 原来这个系数是 0.28，远侧只长了不到两个点，肉眼根本看不出来
-            double recoilK = asleep ? 1.05 : 0.28;
+            double recoilK = 0.28 * (1 - _sleepT) + 1.05 * _sleepT;
             for (int i = 0; i < RayCount; i++)
             {
-                var delta = WrapPi(RayAngle(i, asleep) - mAngle);
+                var delta = WrapPi(RayAngle(i) - mAngle);
                 // cos 归一到 0–1 后取幂。指数从 2.2 降到 1.4：光芒减到 9 根后，
                 // 太尖的衰减只有一根够得着，看不出「一片被拉过去」的感觉
                 var alignment = Math.Pow(Math.Max(0, Math.Cos(delta)), 1.4);
@@ -370,7 +417,7 @@ public sealed class PetRenderer
             var breath = 0.08 + 0.92 * Math.Sin(_t * rate + (dirAngle == 0 ? Math.PI : 0));
             for (int i = 0; i < RayCount; i++)
             {
-                var delta = WrapPi(RayAngle(i, asleep) - dirAngle);
+                var delta = WrapPi(RayAngle(i) - dirAngle);
                 outv[i] += GaugeMaxPull * k * breath * Math.Pow(Math.Max(0, Math.Cos(delta)), 1.4);
             }
         }
@@ -464,6 +511,14 @@ public sealed class PetRenderer
 
         var y = card.Y + 10 + TopRowH + 2;
 
+        if (SoonestResetText() is { } soon)
+        {
+            Theme.DrawText(ctx, soon, new Rect(card.X + 10, y, card.Width - 20, 13),
+                           10, FontWeight.Normal, Theme.SecondaryLabelColor,
+                           TextAlignment.Center);
+            y += ResetLineH;
+        }
+
         if (_model.Loading)
         {
             Theme.DrawText(ctx, "正在获取用量…", new Rect(card.X, y + 6, card.Width, 16),
@@ -529,23 +584,23 @@ public sealed class PetRenderer
         double cx0 = center.X, cy0 = center.Y;
         var stress = _model.MaxPercent / 100.0;
         // 没有会话在跑就打盹：灰扑扑、闭眼、飘 zzz
-        var asleep = IsSunAsleep;
-        var breathe = 1 + 0.022 * Math.Sin(_t * (asleep ? 1.0 : 1.6));
+        var sT = _sleepT;                  // 0 = 清醒，1 = 打盹；以下全部按它插值
+        var breathe = 1 + 0.022 * Math.Sin(_breathPhase);
 
-        var light = asleep ? Theme.SleepLight : Theme.CoralLight;
-        var deep = asleep ? Theme.SleepDeep : Theme.CoralDeep;
+        var light = Sundial.App.Theme.Blend(Theme.CoralLight, sT, Theme.SleepLight);
+        var deep = Sundial.App.Theme.Blend(Theme.CoralDeep, sT, Theme.SleepDeep);
         // 身体随用量连续加深。原来是过了 75% 才突然变，等于只有两档；
         // 改成一路渐深，扫一眼颜色就知道大概用了多少，不用去读数字。
         // 取 1.5 次幂：用量低时几乎不变色，高位才明显压暗
         // 睡着时也保留用量信号。**只剩一颗太阳的时候，恰恰是没有别的东西可看的时候**——
         // 原来这里把颜色全关掉，等于在最需要它的场合什么都读不到
         // （macOS 版实测：10% 和 99% 渲染出来一模一样）
-        var tint = Math.Pow(Math.Clamp(stress, 0, 1), 1.2) * (asleep ? 0.75 : 0.62);
+        var tint = Math.Pow(Math.Clamp(stress, 0, 1), 1.2) * (0.62 + 0.13 * sT);
         // 目标色用固定的深砖红，不能用 GaugeAlert——那个随明暗切换，
         // 深色模式下反而更亮，越紧张身体越浅，正好反了。
         // 上半只加深四成、下半加满：身体本来就是上浅下深，脸长在偏上的位置；
         // 全身一起压暗的话，深红底配深褐五官，对比度会掉到 2.5:1（图形下限 3:1）
-        var deepenTo = asleep ? Theme.SleepDeepen : Theme.SunDeepen;
+        var deepenTo = Sundial.App.Theme.Blend(Theme.SunDeepen, sT, Theme.SleepDeepen);
         var bodyLight = Theme.Blend(light, tint * 0.4, deepenTo);
         var bodyDeep = Theme.Blend(deep, tint, deepenTo);
 
@@ -567,7 +622,7 @@ public sealed class PetRenderer
             // sideAngle == PI 是朝左那一侧
             var glow = sideAngle > 1 ? Sundial.App.Theme.GlowLeft : Sundial.App.Theme.GlowRight;
             // 睡着时把发光色往睡眠灰里收一点——还认得出是金还是粉，但不刺眼
-            var col = asleep ? Sundial.App.Theme.Blend(glow, 0.25, Theme.SleepDeep) : glow;
+            var col = Sundial.App.Theme.Blend(glow, 0.25 * sT, Theme.SleepDeep);
             // **发光强度跟着这一侧的用量走**：越满越亮。
             // 这是空闲态唯一还能读出用量的通道——只剩一颗太阳时没有圈也没有数字，
             // 而灰身体压暗那点差别在 88pt 见方里根本看不出来。
@@ -579,8 +634,8 @@ public sealed class PetRenderer
         // 光芒：圆头短棒，思考时整圈缓慢转动；鼠标靠近时被「吸」得有长有短
         for (int i = 0; i < RayCount; i++)
         {
-            var angle = (double)i / RayCount * 2 * Math.PI + Math.PI / 8 + (asleep ? 0 : _sunSpin);
-            var wobble = asleep ? 0 : 2.2 * s * Math.Sin(_t * 1.9 + i * 1.3);
+            var angle = (double)i / RayCount * 2 * Math.PI + Math.PI / 8 + _sunSpin;
+            var wobble = (1 - sT) * 2.2 * s * Math.Sin(_t * 1.9 + i * 1.3);
             const double inner = 21 * s;
             // 反向排斥时不能把光芒缩没了，留个最短长度
             var outer = Math.Max(inner + 4 * s, (49 * s + wobble) * breathe + _rayPull[i]);
@@ -651,37 +706,51 @@ public sealed class PetRenderer
         var eyeBaseY = cy - 2 * s;
         var blinkT = _blinkUntil - _t;
         var lidClose = blinkT > 0 ? Theme.EaseInOut(1 - Math.Abs(blinkT / 0.16 - 0.5) * 2) : 0;
-        var faceBrush = new SolidColorBrush(Theme.FaceDark);
+        // 眨眼和入睡合成同一个「闭合度」：入睡那 0.6 秒里眼睛是慢慢阖上的，
+        // 不是突然换成一条弧线，所以椭圆压扁与弧线淡入有一段重叠。
+        // 用满了则整体让位给 ✖
+        var lid2 = Math.Max(lidClose, sT);
+        var arcAlpha = Theme.EaseInOut(Math.Clamp((lid2 - 0.62) / 0.38, 0, 1));
+        var dT = _deadT;
         foreach (var dx in new[] { -12.0 * s, 12.0 * s })
         {
             // 眼珠看向鼠标；闭眼时不偏，免得弧线歪掉
-            var ex = cx + dx + (asleep ? 0 : _eyeShift.X);
-            var ey = eyeBaseY + (asleep ? 0 : _eyeShift.Y);
-            if (asleep || lidClose > 0.75)
-            {
-                var lid = Curve(new Point(ex - 3 * s, ey),
-                                new Point(ex - 1.5 * s, ey + 2.4 * s),
-                                new Point(ex + 1.5 * s, ey + 2.4 * s),
-                                new Point(ex + 3 * s, ey));
-                ctx.DrawGeometry(null, RoundPen(Theme.FaceDark, 1.6 * s), lid);
-            }
-            else
+            var ex = cx + dx + _eyeShift.X * (1 - sT);
+            var ey = eyeBaseY + _eyeShift.Y * (1 - sT);
+            var h = 6 * s * (1 - lid2);
+            if (h > 0.2 && arcAlpha < 1 && dT < 1)
             {
                 // 纯豆豆眼，不点高光：这个尺寸下那点白只有 0.6pt，
-                // 不是高光而是一粒噪点，把干净的剪影搞脏了。
-                // 眨眼是高度收缩，不是突然切换
-                var h = 6 * s * (1 - lidClose);
-                ctx.DrawEllipse(faceBrush, null, new Point(ex, ey), 2.4 * s, h / 2);
+                // 不是高光而是一粒噪点，把干净的剪影搞脏了
+                ctx.DrawEllipse(new SolidColorBrush(
+                    Theme.WithAlpha(Theme.FaceDark, (1 - arcAlpha) * (1 - dT))),
+                    null, new Point(ex, ey), 2.4 * s, h / 2);
+            }
+            if (arcAlpha > 0.01 && dT < 1)
+            {
+                var lidCurve = Curve(new Point(ex - 3 * s, ey),
+                                     new Point(ex - 1.5 * s, ey + 2.4 * s),
+                                     new Point(ex + 1.5 * s, ey + 2.4 * s),
+                                     new Point(ex + 3 * s, ey));
+                ctx.DrawGeometry(null, RoundPen(
+                    Theme.WithAlpha(Theme.FaceDark, arcAlpha * (1 - dT)), 1.6 * s), lidCurve);
+            }
+            if (dT > 0.01)
+            {
+                var xr = 3.2 * s;
+                var xPen = RoundPen(Theme.WithAlpha(Theme.FaceDark, dT), 1.9 * s);
+                ctx.DrawLine(xPen, new Point(ex - xr, ey - xr), new Point(ex + xr, ey + xr));
+                ctx.DrawLine(xPen, new Point(ex - xr, ey + xr), new Point(ex + xr, ey - xr));
             }
         }
 
         // 眉毛：只在开始紧张后才长出来，内高外低（「/ \」）＝担心的样子。
         // 这是三种心情里最一眼能认出来的差别
-        if (!asleep && worry > 0.02)
+        if (worry * (1 - sT) > 0.02)
         {
             var lift = 2.4 * s * worry;
             var browY = eyeBaseY - 6.5 * s;
-            var browPen = RoundPen(Theme.WithAlpha(Theme.FaceDark, worry), 1.7 * s);
+            var browPen = RoundPen(Theme.WithAlpha(Theme.FaceDark, worry * (1 - sT)), 1.7 * s);
             foreach (var dx in new[] { -12.0 * s, 12.0 * s })
             {
                 var ex = cx + dx;
@@ -693,14 +762,14 @@ public sealed class PetRenderer
 
         // 嘴：开心是咧开的大弧，紧张是抿平，用满了是明显的倒弧
         var my = cy + 6.5 * s;
-        var mouthPen = RoundPen(Theme.FaceDark, 1.7 * s);
-        if (asleep)
+        var mouthPen = RoundPen(Theme.WithAlpha(Theme.FaceDark, 1 - sT), 1.7 * s);
+        if (sT > 0.01)
         {
             // 原版 NSRect(x: cx-2s, y: my-0.5s, w: 4s, h: 5s) 的椭圆描边
-            ctx.DrawEllipse(null, RoundPen(Theme.FaceDark, 1.4 * s),
+            ctx.DrawEllipse(null, RoundPen(Theme.WithAlpha(Theme.FaceDark, sT), 1.4 * s),
                             new Point(cx, my + 2 * s), 2 * s, 2.5 * s);
         }
-        else if (stress < 0.5)
+        if (stress < 0.5)
         {
             // 张得更开、弯得更深，还带两个上翘的嘴角；鼠标靠近时笑得更开
             // 控制点从 ±2.6 移到 ±4.8：靠得太近会把曲线拽成尖底的 V，
@@ -726,7 +795,7 @@ public sealed class PetRenderer
                 new Point(cx + 5.6 * s, my + 4.2 * s)));
         }
 
-        if (asleep)
+        if (sT > 0.01)
         {
             for (int i = 0; i < 3; i++)
             {
@@ -737,9 +806,9 @@ public sealed class PetRenderer
                 var zy = cy - 24 * s - phase * 18 - i * 6 * s;
                 var rect = new Rect(zx, zy, 20, size + 6);
                 Theme.DrawText(ctx, "z", new Rect(rect.X + 1, rect.Y + 1, rect.Width, rect.Height),
-                               size, FontWeight.Bold, Theme.WithAlpha(Theme.FaceDark, fade * 0.55));
+                               size, FontWeight.Bold, Theme.WithAlpha(Theme.FaceDark, fade * 0.55 * sT));
                 Theme.DrawText(ctx, "z", rect, size, FontWeight.Bold,
-                               Theme.WithAlpha(Theme.LabelColor, fade * 0.8));
+                               Theme.WithAlpha(Theme.LabelColor, fade * 0.8 * sT));
             }
         }
     }

@@ -452,6 +452,7 @@ public sealed class MainWindow : Window
         {
             // 用渲染器里那个连续变化的高度，绝对不能直接数块数：块数是离散的，
             // 最后一块一消失窗口会在一帧里掉 50pt，所有缓动全白做，看着就是「啪」地消失
+            h += _renderer.ResetLineHeight;
             h += _renderer.BlocksHeight;
             // 详情区高度按展开进度连续插值，窗口才能平滑伸缩
             var p = _renderer.HoverProgress;
