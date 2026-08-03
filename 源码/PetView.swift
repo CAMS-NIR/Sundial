@@ -509,7 +509,9 @@ final class PetView: NSView {
         // 就会被窗口边缘生生切掉，看着像「啪」地消失而不是渐隐。
         // 同时略微缩小，读起来是「收回去了」而不是「被裁掉了」
         let g = easeInOut(max(0, (e - 0.34) / 0.66))
-        if g > 0.004 {
+        // 没有任何用量数据（未登录 / 无订阅）就不画那两个空圈，
+        // 留两个空轨道在那儿只会让人以为是坏了
+        if g > 0.004, !model.rows.isEmpty {
             withAlpha(g) { drawGauges(in: card, midY: rowMidY, scale: 0.84 + 0.16 * g) }
         }
         guard e > 0.01 else { return }   // 完全收起时只剩太阳
@@ -524,7 +526,11 @@ final class PetView: NSView {
             return
         }
 
-        if model.rows.isEmpty, let msg = model.errorMsg {
+        // 拿不到用量时**只有在没有会话可显示**的情况下才独占整张卡片。
+        // 会话状态那半边读的是本地记录文件，跟登录和订阅都没关系——
+        // 没有 Max/Pro 的人（授权页会直接拒绝）照样该看得到自己在跑什么、
+        // 上下文用了多少。早先这里无条件 return，等于把唯一还能用的功能也关掉了。
+        if model.rows.isEmpty, let msg = model.errorMsg, blocks.isEmpty {
             drawText(msg, in: NSRect(x: card.minX + 13, y: y + 4,
                                      width: card.width - 26, height: 46),
                      font: .systemFont(ofSize: 10.5),
@@ -983,6 +989,13 @@ final class PetView: NSView {
         // 同一个 60%，圆环是杏粉、列表里却是琥珀，看着像两套系统。
         // 没上仪表的那几条（比如没被选中的周限额）给中性灰，一眼能看出「这条没画成圈」。
         let shownRows = model.ringRows
+        if model.rows.isEmpty {
+            drawText(model.needsLogin ? "未登录，只显示会话状态" : "暂时取不到用量",
+                     in: NSRect(x: innerX, y: y, width: innerW, height: 14),
+                     font: .systemFont(ofSize: 9.5),
+                     color: .secondaryLabelColor)
+            y += 15
+        }
         for row in model.rows {
             let c: NSColor
             if row.label == shownRows.outer?.label { c = .ringLeft }
@@ -1010,7 +1023,8 @@ final class PetView: NSView {
         }
 
         let footer: String
-        if let msg = model.errorMsg {
+        // 上面已经写过「未登录，只显示会话状态」了，底部不再重复一遍
+        if let msg = model.errorMsg, !model.rows.isEmpty {
             footer = "⚠︎ " + (msg.components(separatedBy: "\n").first ?? msg)
         } else if let last = model.lastFetch {
             let mins = Int(-last.timeIntervalSinceNow / 60)

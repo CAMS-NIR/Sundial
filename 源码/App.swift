@@ -229,7 +229,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         var h: CGFloat = 10 + PetView.topRowH + 2   // 卡片顶部内边距 + 顶行
         if model.loading {
             h += 28
-        } else if model.rows.isEmpty, model.errorMsg != nil {
+        } else if model.rows.isEmpty, model.errorMsg != nil,
+                  (petView?.blocksHeight ?? 0) <= 0 {
+            // 只有在连会话块都没有时，错误提示才独占整张卡片
             h += 56 + (model.needsLogin ? 36 : 0)
         } else {
             // 用视图里那个连续变化的高度，不能直接数块数：块数是离散的，
