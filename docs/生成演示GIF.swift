@@ -455,7 +455,12 @@ if isVideo {
         AVVideoWidthKey: Int(pixelSize.width),
         AVVideoHeightKey: Int(pixelSize.height),
         AVVideoCompressionPropertiesKey: [
-            AVVideoAverageBitRateKey: 9_000_000,
+            AVVideoAverageBitRateKey: 40_000_000,
+            // 全 I 帧。首帧本来是关键帧、末帧是预测帧，量化方式不同，
+            // 于是内容完全相同的两帧解码出来仍有约 0.6/255 的差——加码率
+            // 治不了（9→24→40 Mbps 基本没动）。每帧独立编码才对得上。
+            // 代价是文件大好几倍，但这是发社媒用的素材，不在乎
+            AVVideoMaxKeyFrameIntervalKey: 1,
             AVVideoProfileLevelKey: AVVideoProfileLevelH264HighAutoLevel,
         ],
     ])
