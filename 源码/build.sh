@@ -29,6 +29,10 @@ SRC=(${(f)"$(ls *.swift | grep -v '^main.swift$')"} main.swift)
 # 文件提供程序会异步给 .app 重新打上 com.apple.FinderInfo，和 codesign 抢时间——
 # 于是 codesign 间歇性报「resource fork, Finder information ... not allowed」，
 # 清多少次 xattr 都没用，因为它是在清完之后才被加回去的。
+# 产物统一落在仓库根目录下，而不是写死的 ~/Desktop/Sundial——
+# 别人把仓库克隆到哪儿，产物就出现在哪儿；写死的话不但找不到，
+# 还可能覆盖掉别人桌面上同名的目录
+REPO="$(cd "$(dirname "$0")/.." && pwd)"
 BUILD="${TMPDIR:-/tmp}/sundial-build"
 rm -rf "$BUILD" && mkdir -p "$BUILD"
 
@@ -45,7 +49,7 @@ else
   echo "编译中（${#SRC[@]} 个源文件，仅本机架构）..."
   swiftc -O -swift-version 5 -target arm64-apple-macos$MIN_MACOS \
          -o "$BUILD/$APP_NAME" "${SRC[@]}"
-  DEST="$HOME/Desktop/Sundial/$APP_NAME.app"
+  DEST="$REPO/$APP_NAME.app"
 fi
 APP="$BUILD/$APP_NAME.app"      # 组装与签名都在这里，签完再搬到桌面
 
@@ -89,7 +93,7 @@ if [[ "$MODE" == "release" ]]; then
   xcrun stapler staple "$APP"         # 把公证票据钉进 App，离线也能验证
 
   rm -f "$ZIP"
-  OUT="$HOME/Desktop/Sundial/发给朋友/$APP_NAME.zip"
+  OUT="$REPO/发给朋友/$APP_NAME.zip"
   ditto -c -k --keepParent "$APP" "$OUT"
   echo "✓ 可分发文件：$OUT"
   spctl -a -vv "$APP" 2>&1 | tail -2
@@ -105,7 +109,7 @@ fi
 if [[ "$MODE" == "share" ]]; then
   clean_xattr "$APP"
   codesign --force --sign - "$APP"
-  OUT="$HOME/Desktop/Sundial/发给朋友/$APP_NAME.zip"
+  OUT="$REPO/发给朋友/$APP_NAME.zip"
   rm -f "$OUT"
   ditto -c -k --keepParent "$APP" "$OUT"
   echo "✓ 可分发文件：$OUT（朋友首次打开需去隔离，见 给朋友看的说明.txt）"
