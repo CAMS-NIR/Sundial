@@ -1,0 +1,14 @@
+# 默认按文本处理、检出时用平台换行
+* text=auto
+
+# 脚本必须是 LF：Windows 上克隆后若变成 CRLF，zsh/bash 会报
+# "bad interpreter: /bin/zsh^M" 直接跑不起来
+*.sh   text eol=lf
+*.swift text eol=lf
+*.cs    text eol=lf
+
+# 二进制，别当文本改
+*.icns binary
+*.png  binary
+*.exe  binary
+*.zip  binary

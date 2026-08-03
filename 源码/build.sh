@@ -58,7 +58,11 @@ cp Info.plist "$APP/Contents/Info.plist"
                         "$APP/Contents/Info.plist" >/dev/null
 cp "$BUILD/$APP_NAME" "$APP/Contents/MacOS/$APP_NAME"
 # 图标（由 图标生成器.swift 生成，改了太阳要重跑一次那个脚本）
-cp $APP_NAME.icns "$APP/Contents/Resources/$APP_NAME.icns"
+# Sundial.icns 是「当前启用的那份」，由 图标/生成图标.sh 产出、不入库；
+# 新克隆下来时它不存在，回退到浅色版
+ICON="$APP_NAME.icns"
+[[ -f "$ICON" ]] || ICON="$APP_NAME-light.icns"
+cp "$ICON" "$APP/Contents/Resources/$APP_NAME.icns"
 # 清掉扩展属性：cp 会把源文件的 xattr 一起带过来（.icns 常带着 Finder 信息）。
 # 注意 com.apple.provenance 清不掉，但 codesign 不介意它，介意的是 FinderInfo
 clean_xattr() { xattr -cr "$1" 2>/dev/null || true; }
