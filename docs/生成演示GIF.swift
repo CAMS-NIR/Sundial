@@ -173,8 +173,12 @@ let gifDelay = 0.04
 // 只要起点相位落在让这个 cos 为零的地方，两端的呼吸**取值**就严格相同——
 // 相位对不上，值可以对上。代价只是两端的呼吸方向相反，
 // 而那点差异是每帧 0.016pt，可以忽略
+// **两个模式必须用同一个暖机长度**，否则第 0 帧的 zzz / 呼吸 / 仪表相位各不相同，
+// 两条片子各自能循环、却互相拼不上。默认版的暖机本来就是自由的（它的呼吸靠
+// sessionEnd 对齐，与暖机无关），所以统一取躲模式需要的那个值，两边都满足
 let warmT: CGFloat = {
-    guard dodge else { return loopT }
+    // 暖机期间两个模式的状态完全一样（没有会话、没有悬停、睡着），
+    // 所以暖机长度相同 ⇒ 第 0 帧逐像素相同。
     // 全程睡着 → breathPhase(t) = t，直接在整数帧上扫最小值
     var best = (w: loopT, d: CGFloat.infinity)
     for f in stride(from: Int(10 * 60), through: Int(25 * 60), by: 1) {
@@ -444,10 +448,22 @@ solveBreath()
 let scene = Scene()
 for _ in 0..<warmFrames { scene.step(dt) }      // 暖机，不录
 var frames: [CGImage] = []
+var firstPetRep: NSBitmapImageRep?
 while frames.count < loopFrames {
     scene.step(dt)
+    if frames.isEmpty { firstPetRep = scene.petBitmap(scale: 1) }
     guard let f = renderFrame(scene) else { break }
     frames.append(f)
+}
+
+// 第 0 帧的指纹。两个模式跑出来必须一模一样，否则两条片子拼不上——
+// 这是「各自能循环」之外的另一件事，不能靠推理，要量
+if let f0 = firstPetRep, let d = f0.bitmapData {
+    var h: UInt64 = 1469598103934665603
+    for i in 0..<(f0.bytesPerRow * f0.pixelsHigh) {
+        h = (h ^ UInt64(d[i])) &* 1099511628211
+    }
+    print(String(format: "  第 0 帧指纹 %016llx（%d×%d）", h, f0.pixelsWide, f0.pixelsHigh))
 }
 
 // 自检：末帧之后的那一帧应该与第 0 帧完全相同，这才叫接得上。
