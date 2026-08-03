@@ -89,7 +89,10 @@ func statusSunImage(spin: CGFloat, asleep: Bool) -> NSImage {
     body.setFill()
     let rays = 9
     for i in 0..<rays {
-        let a = CGFloat(i) / CGFloat(rays) * 2 * .pi + .pi / 8 + spin
+        // 这里必须是减号。桌宠那边 PetView.isFlipped = true，正向旋转在屏幕上是
+        // 顺时针；而 NSImage.lockFocus() 给的是未翻转的上下文，同样的 + spin
+        // 画出来是逆时针——两只太阳会朝相反方向转。取负号把它掰回来
+        let a = CGFloat(i) / CGFloat(rays) * 2 * .pi + .pi / 8 - spin
         let inner: CGFloat = 3.4, outer: CGFloat = 8.2, w: CGFloat = 2.5
         let r = NSBezierPath(roundedRect: NSRect(x: inner, y: -w / 2,
                                                  width: outer - inner, height: w),
