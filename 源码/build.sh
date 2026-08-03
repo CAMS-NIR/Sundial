@@ -12,6 +12,9 @@ set -e
 cd "$(dirname "$0")"
 
 APP_NAME="Sundial"
+# 版本号的唯一来源是仓库根的 VERSION 文件，两个平台都从这里读。
+# 以前 Info.plist 和 csproj 各写各的，改一边忘另一边是迟早的事
+VERSION="$(cat "$(dirname "$0")/../VERSION" 2>/dev/null || echo 0.0.0)"
 BUNDLE_ID="com.cams-nir.sundial"
 MIN_MACOS="13.0"
 NOTARY_PROFILE="solaris-notary"
@@ -49,6 +52,10 @@ APP="$BUILD/$APP_NAME.app"      # 组装与签名都在这里，签完再搬到�
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp Info.plist "$APP/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" \
+                        "$APP/Contents/Info.plist" >/dev/null
+/usr/libexec/PlistBuddy -c "Set :CFBundleVersion $VERSION" \
+                        "$APP/Contents/Info.plist" >/dev/null
 cp "$BUILD/$APP_NAME" "$APP/Contents/MacOS/$APP_NAME"
 # 图标（由 图标生成器.swift 生成，改了太阳要重跑一次那个脚本）
 cp $APP_NAME.icns "$APP/Contents/Resources/$APP_NAME.icns"

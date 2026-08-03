@@ -12,6 +12,9 @@ export DOTNET_CLI_TELEMETRY_OPTOUT=1 DOTNET_NOLOGO=1
 command -v dotnet >/dev/null || export PATH="/opt/homebrew/bin:$PATH"
 
 MODE="${1:-x64}"
+# 版本号的唯一来源是仓库根的 VERSION 文件（与 macOS 版共用）。
+# 以前 Info.plist 和 csproj 各写各的，改一边忘另一边是迟早的事
+VERSION="$(cat ../VERSION 2>/dev/null || echo 0.0.0)"
 
 if [[ "$MODE" == "check" ]]; then
   echo "▸ 拿本机真实的 Claude Code 记录跑 Core 层…"
@@ -32,6 +35,7 @@ echo "▸ 打包 $RID（自包含，对方不用装 .NET 运行时）…"
 rm -rf "$OUT"
 dotnet publish src/Sundial.App/Sundial.App.csproj \
   -c Release -r "$RID" --self-contained true \
+  -p:Version="$VERSION" \
   -p:PublishSingleFile=true \
   -p:IncludeNativeLibrariesForSelfExtract=true \
   -p:EnableCompressionInSingleFile=true \

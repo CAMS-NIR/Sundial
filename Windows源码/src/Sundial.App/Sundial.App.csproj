@@ -5,7 +5,8 @@
     <AssemblyName>Sundial</AssemblyName>
     <TargetFramework>net10.0</TargetFramework>
     <DebugType>none</DebugType>            <!-- 发给别人不需要 .pdb -->
-    <Version>1.0.0</Version>
+    <!-- 版本由 构建.sh 用 -p:Version 从仓库根的 VERSION 传入；这里只是本地调试的兜底 -->
+    <Version>0.0.0</Version>
     <Company>cams-nir</Company>
     <Product>Sundial</Product>
     <Nullable>enable</Nullable>
