@@ -26,6 +26,10 @@ import UniformTypeIdentifiers
 let outPath = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "demo.gif"
 let isVideo = outPath.lowercased().hasSuffix(".mp4") || outPath.lowercased().hasSuffix(".mov")
 let darkMode = CommandLine.arguments.contains("dark")   // 视频默认白天模式
+/// 「躲」模式：全程没有会话，太阳一直睡着，光标凑近时它把光芒缩回去、身子往后躲。
+/// 与默认那条时间轴的区别不只是内容——全程睡着意味着呼吸速率恒为 1.0 rad/s，
+/// 「醒着多久」这个调节旋钮没有了，闭环只能靠搜近似复现点（见 findLoopLength）
+let dodge = CommandLine.arguments.contains("dodge")
 
 // MARK: - 演示数据
 
@@ -155,34 +159,72 @@ let fps = CGFloat(loopFrames) / loopT
 // 播放会快 4%，但**帧序列本身是闭合的**，无缝与否只看画面内容不看播放速度
 let gifDelay = 0.04
 
-// 暖机：先空转一整个周期再开始录。
+// 暖机：先空转一段再开始录。
 // 光芒伸长量 rayPull、圆环缓动 ringShown 这些是低通滤波量，从初值 0 出发要
 // 若干秒才收敛到稳态；不暖机的话第 0 帧还在收敛途中，而末帧早已稳态，接不上。
-// 空转整整一个周期，②③ 又正好回到 t=0 时的相位，一举两得
-let warmT = loopT
+//
+// 暖机多长是自由的——闭合条件只跟循环长度有关，与从哪个相位起录无关。
+// 默认版空转整整一个周期，顺便让 ②③ 回到 t=0 的相位。
+//
+// 躲模式则拿它当旋钮用。全程睡着时呼吸速率恒为 1.0 rad/s，一轮下来净增
+// 16.667 rad，离 2π 的整数倍差 2.183 rad，**相位无论如何对不上**。
+// 但呼吸进画面的方式是 sin(φ)，而
+//     sin(φ) − sin(φ + 2.183) = 1.778 · cos(φ + 1.0915)
+// 只要起点相位落在让这个 cos 为零的地方，两端的呼吸**取值**就严格相同——
+// 相位对不上，值可以对上。代价只是两端的呼吸方向相反，
+// 而那点差异是每帧 0.016pt，可以忽略
+let warmT: CGFloat = {
+    guard dodge else { return loopT }
+    // 全程睡着 → breathPhase(t) = t，直接在整数帧上扫最小值
+    var best = (w: loopT, d: CGFloat.infinity)
+    for f in stride(from: Int(10 * 60), through: Int(25 * 60), by: 1) {
+        let w = CGFloat(f) / 60
+        let d = abs(sin(w) - sin(w + loopT))
+        if d < best.d { best = (w, d) }
+    }
+    print(String(format: "  躲模式暖机：%.4f 秒，两端呼吸取值差 %.2e（相位差 %.3f rad 对不上，但取值对上了）",
+                 best.w, best.d, (16.6667).truncatingRemainder(dividingBy: 2 * .pi)))
+    return best.w
+}()
+let warmFrames = Int((warmT / dt).rounded())
 
 /// 会话「跑完转未读」的时刻。这是留给呼吸相位的调节旋钮——
 /// 醒着 1.6、睡着 1.0 rad/s，把这个时刻挪早挪晚就改变了醒着的总时长
 var sessionEnd: CGFloat = 9.50
 
 struct Beat { let at: CGFloat; let action: (Scene) -> Void }
-func beatList() -> [Beat] { [
-    Beat(at: warmT + 0.00) { $0.model.hovered = false; $0.model.sessions = [] },
-    Beat(at: warmT + 0.70) { $0.model.hovered = true },
-    Beat(at: warmT + 1.60) { $0.model.sessions = [demoSession(elapsed: 95)] },
-    Beat(at: warmT + sessionEnd) { s in
-        var x = demoSession(elapsed: 95)
-        x.busy = false; x.unread = true; x.finishedAt = Date()
-        s.model.sessions = [x]
-    },
-    Beat(at: warmT + sessionEnd + 0.85) { $0.model.hovered = false },
-    Beat(at: warmT + sessionEnd + 1.10) { $0.model.sessions = [] },
-] }
+func beatList() -> [Beat] {
+    if dodge {
+        // 与默认版**完全相同的节奏**：同样的时长、同样的展开与收起时刻、
+        // 同样的光标轨迹。唯一的差别是全程没有会话，于是太阳一直睡着，
+        // 引力方向反过来——光标凑近时它把光芒缩回去、身子往后躲。
+        // 收起的时刻沿用默认版解出来的 sessionEnd + 0.85，保证两条片子对得上
+        return [
+            Beat(at: warmT + 0.00) { $0.model.hovered = false; $0.model.sessions = [] },
+            Beat(at: warmT + 0.70) { $0.model.hovered = true },
+            Beat(at: warmT + sessionEnd + 0.85) { $0.model.hovered = false },
+        ]
+    }
+    return [
+        Beat(at: warmT + 0.00) { $0.model.hovered = false; $0.model.sessions = [] },
+        Beat(at: warmT + 0.70) { $0.model.hovered = true },
+        Beat(at: warmT + 1.60) { $0.model.sessions = [demoSession(elapsed: 95)] },
+        Beat(at: warmT + sessionEnd) { s in
+            var x = demoSession(elapsed: 95)
+            x.busy = false; x.unread = true; x.finishedAt = Date()
+            s.model.sessions = [x]
+        },
+        Beat(at: warmT + sessionEnd + 0.85) { $0.model.hovered = false },
+        Beat(at: warmT + sessionEnd + 1.10) { $0.model.sessions = [] },
+    ]
+}
 
 // 鼠标引力段：光标从右下进场，贴着太阳绕过去，再从左下离场。
 // 两端快、中间慢——停留久一点才看得清光芒被拽长、身体前倾、眼珠跟着转。
 // 之后留一段无人打扰的安静时间，看「被两侧仪表一吸一斥」的呼吸
 let mouseFrom: CGFloat = 2.30, mouseTo: CGFloat = 5.40
+
+// 躲模式复用同一条路径、同一个进出时刻——两个版本唯一的差别是有没有会话
 func demoMouse(_ t: CGFloat) -> NSPoint? {
     let tt = t - warmT
     guard tt >= mouseFrom, tt <= mouseTo else { return nil }
@@ -359,7 +401,7 @@ func renderFrame(_ sc: Scene) -> CGImage? {
 /// 只推进不绘制——呼吸只跟 sleepT 和 dt 有关，与画不画无关，所以很快
 func breathGain() -> CGFloat {
     let sc = Scene()
-    for _ in 0..<loopFrames { sc.step(dt) }
+    for _ in 0..<warmFrames { sc.step(dt) }
     let a = sc.view.breathPhaseSnapshot
     for _ in 0..<loopFrames { sc.step(dt) }
     return sc.view.breathPhaseSnapshot - a
@@ -392,12 +434,15 @@ func solveBreath() {
     print(String(format: "  呼吸：会话结束点 %.4f 秒，净增量 %.4f rad = %.3f 圈，残差 %.2e rad",
                  sessionEnd, g, g / twoPi, residual))
 }
+// 躲模式全程睡着，呼吸速率恒为 1.0 rad/s，「醒着多久」这个旋钮不存在，
+// 呼吸相位无法对齐（zzz 要整周、呼吸要 2π 整数倍，而 0.42×2π 是无理数）。
+// 时长既然要跟默认版一致，就只能如实承受这项残差——下面的自检会把它量出来
 solveBreath()
 
 // MARK: - 正式渲染
 
 let scene = Scene()
-for _ in 0..<loopFrames { scene.step(dt) }      // 暖机一整轮，不录
+for _ in 0..<warmFrames { scene.step(dt) }      // 暖机，不录
 var frames: [CGImage] = []
 while frames.count < loopFrames {
     scene.step(dt)
@@ -409,7 +454,7 @@ while frames.count < loopFrames {
 // 顺便量一下空闲段相邻两帧的差，作为「一帧正常步进」的基准线
 if let seamRep = scene.petBitmap(scale: 1) {
     let probe = Scene()
-    for _ in 0..<loopFrames { probe.step(dt) }
+    for _ in 0..<warmFrames { probe.step(dt) }
     probe.step(dt)
     if let firstRep = probe.petBitmap(scale: 1),
        firstRep.pixelsWide == seamRep.pixelsWide,
