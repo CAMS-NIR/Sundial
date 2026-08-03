@@ -1,282 +1,336 @@
 # Sundial · 日晷
 
-一只停在桌面上的小太阳，显示 Claude Code 的实时会话状态和用量限额。
-macOS 与 Windows 双平台。
+*English · [简体中文](README.zh-CN.md)*
 
-**不需要订阅也能用**——会话状态那半边读的是本地文件，装上就能看；
-只有两个用量圈需要 Claude Max / Pro。
+A small sun that sits on your desktop, showing live Claude Code session activity
+and how much of your usage allowance is left. macOS and Windows.
 
-> **非官方的个人项目，与 Anthropic 没有任何关系，也没有得到它的认可或支持。**
-> 用量那半边依赖一个未公开接口，随时可能失效；详见下方[风险声明](#-请先读这一段)。
+**A subscription is not required.** The session half reads local files, so it
+works the moment you install it; only the two usage dials need Claude Max or Pro.
+
+> **An unofficial personal project. It is not affiliated with Anthropic, nor
+> endorsed or supported by them.** The usage half depends on an undocumented
+> endpoint and may stop working at any time — see [Please read this first](#-please-read-this-first).
 
 <p align="center">
   <img src="docs/demo.gif" width="380"
-       alt="白天模式演示：打盹的太阳 → 悬停展开 → 会话开始 → 鼠标靠近，光芒被吸过去 → 跑完变未读 → 收起">
+       alt="Light mode: the sun dozes, expands on hover, a session starts, the cursor approaches and the rays are drawn towards it, the session finishes and is marked unread, then everything folds away">
   <img src="docs/demo-dark.gif" width="380"
-       alt="夜间模式演示：同一段流程的深色配色">
+       alt="Dark mode: the same sequence in the dark palette">
 </p>
 
 <p align="center"><sub>
-左：白天模式　右：夜间模式（跟随系统自动切换）<br>
-打盹 → 悬停展开 → 会话开始 → 鼠标靠近时光芒被吸过去 → 无人打扰时被两侧仪表一吸一斥地拽着呼吸 → 跑完未读 → 收起
+Left: light mode · Right: dark mode (follows the system setting)<br>
+Dozing → expand on hover → a session begins → the rays reach towards the cursor →
+left alone, the dials pull and push the rays into a slow breath → finished, unread → folded away
 </sub></p>
 
 ---
 
-## 下载
+## Download
 
-到 [Releases](../../releases) 拿最新版：
+Grab the latest build from [Releases](../../releases):
 
-| 平台 | 文件 | 说明 |
+| Platform | File | Notes |
 |---|---|---|
-| macOS 13+ | `Sundial-x.y.z-macOS.zip` | 通用二进制，Intel 与 Apple 芯片都能跑 |
-| Windows 10/11 | `Sundial-x.y.z-Windows-x64.exe` | 自包含，不用装 .NET |
+| macOS 13+ | `Sundial-x.y.z-macOS.zip` | Universal binary; runs on both Intel and Apple silicon |
+| Windows 10/11 | `Sundial-x.y.z-Windows-x64.exe` | Self-contained; no .NET installation needed |
 
-**macOS 首次打开**：没有经过 Apple 公证，系统会拦一下。二选一——
-
-拖进「应用程序」后，终端里跑一次（只需一次）：
+**Opening it for the first time on macOS.** The app is not notarised by Apple,
+so Gatekeeper will stop it. Either drag it into Applications and run this once
+in Terminal:
 
 ```bash
 xattr -dr com.apple.quarantine /Applications/Sundial.app
 ```
 
-或者不用终端：双击 → 被拦住 → 打开「系统设置 › 隐私与安全性」，
-往下滚到关于 Sundial 的那行提示，点「仍要打开」。
+…or avoid the terminal entirely: double-click, let it be blocked, then open
+**System Settings › Privacy & Security**, scroll down to the notice about
+Sundial, and choose **Open Anyway**.
 
-**Windows 首次打开**：SmartScreen 会弹蓝框（没买微软的代码签名证书），
-点「更多信息 → 仍要运行」。
-
----
-
-## 功能
-
-### 两个用量仪表（需要 Max / Pro）
-
-太阳左右各一个圈，中间是百分比，下面是标签。
-
-- **左圈（蜜金色）** = 5 小时限额
-- **右圈（杏粉色）** = 所有周限额里**用得最紧**的那一条。
-  可能是「每周 · 全部模型」，也可能是某个模型的专属限额（比如 Fable），
-  哪条最紧就显示哪条，标签会跟着变。
-
-细节：
-
-- 弧从正上方**顺时针**填充，数值变化时平滑缓动
-- **超限如实显示**。接口返回 106% 就写 106%，不夹到 100——
-  夹住只会让人以为"刚好用完"，看不出超了多少
-- 圆环的缓动值**按位置记而不是按标签记**。右圈显示的限额是会换人的，
-  按标签记的话换人时新标签没有历史值、要从 0 长起来，
-  看着像用量突然清零（实测会从 216° 一帧掉到 54°）
-
-### 太阳本身就是指示器
-
-即使收起成一颗太阳，扫一眼也能读出状态：
-
-- **表情**跟着用量走：轻松时咧嘴笑 → 用了一半抿成一条线 → 快满了皱眉。
-  眉毛只在紧张后才长出来，内高外低
-- **身体颜色**随用量连续加深（不是分档跳变）
-- **光芒尖端**渐变成对应那侧仪表的颜色，**越满越亮**。
-  渐变只上在远端、根部保持本色——颜色是从仪表那边"蹭"过来的
-- **光芒长度**被两侧仪表拉扯：哪边限额紧，光芒就往哪边被拽长，
-  而且是**一吸一斥的呼吸**（正半周拽出去、负半周收回来），
-  用量越高喘得越急。两侧相位相反，整圈像左右摇曳
-- **鼠标引力**：光标靠近时（隔空就开始，不用进窗口）光芒被吸过去、
-  身体微微前倾、眼珠跟着看、笑得更开。打盹时反过来——光芒躲开、身体后缩
-- **打盹**：没有会话在跑时变灰、闭眼、冒 zzz。
-  但用量信号仍然保留（尖端发光的强度），不至于什么都读不到
-
-### 会话块
-
-每个正在跑的 Claude Code 会话一块，最多 4 块：
-
-- 会话标题、正在做什么、**本轮已经跑了多久**
-- **上下文占用**（如 `824.8k / 1.0M`，82%）。条子过 60% 开始变深红，
-  快满时该考虑新开会话了。这个数不需要订阅
-- 状态：`正在思考` / `等你选择`（抛出选项时会**排到最上面**）/
-  `后台任务运行中` / `未读 · 刚刚完成` / `无响应 · 已 N 分无更新`
-- 点一下把「跑完了还没看」的提示消掉
-- 出现和消失是**卷动式**的，下面的块同步上滑，不会凭空跳出跳没
-
-时间判定上踩过不少坑，都已修：回合起点锚在用户消息本身（用 `last-prompt`
-定位会晚 112 秒）、Esc 中断会清起点、API 报错的占位记录不当作回合结束、
-超时只报「无响应」而不谎称跑完。
-
-### 界面
-
-- **空闲时只剩一颗太阳**浮在桌面上，没有卡片也没有底
-- 鼠标移上去展开，移开收起。收起用 S 形缓动（0.62 秒），
-  仪表比窗口先淡出——否则会被窗口边缘切掉，看着像"啪"地消失
-- macOS 上卡片是系统的 **Liquid Glass**（`NSGlassEffectView`）；
-  Windows 上是自绘的半透明圆角底（原因见下方"已知限制"）
-- 跟随系统**明暗模式**自动切换，两套配色都逐项量过对比度
-- 拖动可移动，位置记得住；等待输入时玻璃会染上暖色
-- **菜单栏 / 托盘**也有一颗小太阳，**有会话在跑时它会转**
-
-### 其它
-
-- 右键菜单：登录 / 退出登录、立即刷新、固定展开明细、打开网页版用量、
-  更通透的玻璃、始终置顶、开机自启、把桌宠移回屏幕中央、退出
-- 菜单最上面显示当前版本号，报问题时先看这个
-- 尊重系统无障碍设置：**减弱动态效果**（关掉跟手位移）、
-  **降低透明度**（改画不透明背板）
-- 省电：空闲降到 24fps，磁盘轮询也放慢。**但有会话在跑的时候它是持续占
-  CPU 的**——满帧自绘加 0.8 秒一次的记录轮询，实测约占一个核的三分之一
-  （macOS 上 28–37%）。笔记本上会在活动监视器里排得比较靠前。
-  macOS 版在显示器休眠时会完全停下；Windows 版目前做不到这一点
+**Opening it for the first time on Windows.** SmartScreen will show a blue
+warning, because the executable is not signed with a Microsoft code-signing
+certificate. Choose **More info → Run anyway**.
 
 ---
 
-## 不需要订阅的用法
+## What it does
 
-这个 App 的两半是分开的：
+### Two usage dials (Max / Pro only)
 
-| | 数据来源 | 需要账号吗 |
+A ring sits on either side of the sun, with the percentage in the middle and a
+label beneath.
+
+- **Left ring (honey gold)** — the five-hour allowance.
+- **Right ring (apricot pink)** — whichever weekly allowance is under the most
+  pressure. That may be *Weekly · all models*, or a limit belonging to one
+  particular model. Whichever is tightest is the one shown, and the label
+  changes with it.
+
+Details worth knowing:
+
+- The arc fills **clockwise** from the top, easing smoothly as the figure changes.
+- **Overruns are shown honestly.** If the endpoint returns 106%, it says 106%
+  rather than clamping to 100. Clamping would suggest you had *just* run out,
+  hiding how far past the line you actually are.
+- The easing state is **kept per ring position, not per label**. The limit shown
+  on the right changes identity from time to time; keeping state by label means a
+  newly promoted label has no history and grows from zero, which reads as usage
+  suddenly collapsing (measured: a jump from 216° to 54° in a single frame).
+
+### The sun is itself the indicator
+
+Even folded down to a single sun, a glance tells you where things stand.
+
+- **Its expression** follows usage: a broad grin when there is room, a flat line
+  around halfway, a frown as the limit approaches. Eyebrows only appear once
+  things get tight, angled high on the inside.
+- **Its colour** deepens continuously with usage, rather than stepping between bands.
+- **The ray tips** take on the colour of the dial on that side, and **glow
+  brighter the fuller it gets**. The gradient sits only at the far end — the
+  roots keep the body colour, so the colour reads as having been picked up
+  *from* the dial.
+- **Ray length** is pulled by the dials on either side: whichever allowance is
+  tightest draws the rays towards it, and it does so as **a breath that both
+  attracts and repels** — reaching out on the positive half-cycle, drawing back
+  on the negative. The fuller the allowance, the faster the breathing. The two
+  sides run in opposite phase, so the whole corona sways.
+- **Cursor gravity.** As the pointer approaches — from outside the window, not
+  just within it — the rays are drawn towards it, the body leans in slightly, the
+  eyes follow, and the grin widens. While dozing this reverses: the rays shy away
+  and the body draws back.
+- **Dozing.** With no session running the sun turns grey, closes its eyes and
+  drifts a few z's. The usage signal survives even then, in the brightness of the
+  ray tips, so the folded state is never entirely mute.
+
+### Session blocks
+
+One block per running Claude Code session, up to four:
+
+- Session title, what it is doing, and **how long the current turn has been running**.
+- **Context consumption** (for instance `824.8k / 1.0M`, 82%). The bar deepens
+  towards red past 60%; when it nears the top, it is time to start a fresh
+  session. This figure needs no subscription.
+- Status: `Thinking` · `Waiting for you` (a session asking a question **jumps to
+  the top**) · `Background task running` · `Unread · just finished` ·
+  `Not responding · no update for N min`.
+- Click a block to dismiss the "finished but unread" marker.
+- Blocks **roll** in and out, with the ones below sliding up in step, rather than
+  appearing and vanishing on the spot.
+
+Working out *when* things happened turned out to be the fiddly part, and several
+faults have been fixed along the way: the turn's start is anchored to the user's
+message itself (locating it via `last-prompt` runs 112 seconds late); pressing
+Esc clears the start; placeholder records left by API errors are no longer taken
+as the end of a turn; and a timeout reports *not responding* rather than
+pretending the work finished.
+
+### The interface
+
+- **When idle, only the sun remains**, floating on the desktop with no card and
+  no backing.
+- Hovering expands it; moving away folds it up. Folding uses an S-curve over
+  0.62 s, and the dials fade out ahead of the window — otherwise they are cut off
+  by the window edge and appear to snap out of existence.
+- On macOS the card is the system's **Liquid Glass** (`NSGlassEffectView`); on
+  Windows it is a hand-drawn translucent panel (see [Known limitations](#known-limitations)).
+- It follows the system **light / dark** setting, and both palettes have had
+  their contrast measured item by item.
+- Drag to move it; the position is remembered. The glass takes on a warm tint
+  while a session waits for your input.
+- There is a small sun in the **menu bar / system tray** too, and **it turns
+  while a session is running**.
+
+### Everything else
+
+- Context menu: sign in / sign out, refresh now, keep the usage breakdown open,
+  open the web usage page, clearer glass, always on top, launch at login, bring
+  the pet back to the centre of the screen, quit.
+- The current version number sits at the top of the menu — worth quoting in any
+  bug report.
+- System accessibility settings are respected: **Reduce Motion** disables the
+  cursor-following displacement, **Reduce Transparency** substitutes an opaque panel.
+- Power: idle drops to 24 fps and disk polling slows down. **While a session is
+  running, however, it does use CPU continuously** — full-frame custom drawing
+  plus a transcript poll every 0.8 s, measured at roughly a third of one core
+  (28–37% on macOS). On a laptop it will sit fairly high in Activity Monitor.
+  The macOS build stops entirely when the display sleeps; the Windows build does
+  not yet manage this.
+
+---
+
+## Using it without a subscription
+
+The two halves of the app are independent:
+
+| | Where the data comes from | Account needed? |
 |---|---|---|
-| 会话状态、上下文占用 | 本地 `~/.claude` 下的记录文件 | **不需要** |
-| 两个用量圈 | Anthropic 的接口 | 需要 Max / Pro |
+| Session state, context consumption | Local transcript files under `~/.claude` | **No** |
+| The two usage dials | Anthropic's endpoint | Max / Pro |
 
-没有订阅时，Claude 的授权页会直接写「连接 Claude Code 需要 Claude Max 或 Pro」
-并拒绝连接——**这是正常的，跳过登录即可**，太阳和会话块照常工作。
+Without a subscription, Claude's authorisation page states plainly that
+connecting Claude Code requires Max or Pro, and refuses. **That is expected —
+simply skip signing in.** The sun and the session blocks carry on as usual.
 
-授权页上写的「或使用 API 密钥」对这个用途没用：那是另一套计费方式，
-没有"订阅用量"这个数可显示。
+The "or use an API key" option on that page does not help here: it is a
+different billing arrangement, with no *subscription allowance* figure to show.
 
-### 有订阅的话，多数人也不用登录
+### Even with a subscription, most people never sign in
 
-用量圈取凭证有两条路，**默认走第一条**：
+There are two ways the dials can obtain credentials, and **the first is the default**:
 
-1. **沿用 Claude Code 已有的凭证**（钥匙串 / `~/.claude/.credentials.json`）。
-   命令行版 Claude Code 登录过就直接能用，**打开即有，全程不经过任何授权流程**
-2. **Sundial 自己登录一次**——只有第一条借不到时才需要。
-   最常见的情形是你用的是 Claude Code **桌面版**，它把登录信息存在别处
+1. **Reuse the credentials Claude Code already holds** (Keychain, or
+   `~/.claude/.credentials.json`). If you have signed in to the command-line
+   Claude Code, this simply works — **the dials are there on first launch, and no
+   authorisation flow takes place at all**.
+2. **Have Sundial sign in itself** — needed only when the first route finds
+   nothing. The usual reason is that you are using the **desktop** Claude Code,
+   which keeps its sign-in elsewhere.
 
-换句话说，菜单里那个「登录 Claude 账号」是备选项而不是必经步骤。
-如果圈已经在转，就不用管它。
+In other words, *Sign in to Claude account* in the menu is a fallback rather than
+a required step. If the dials are already turning, you can ignore it.
 
 ---
 
-## 自己构建
+## Building it yourself
 
 ```bash
-# macOS（需要 Xcode 命令行工具）
+# macOS (requires the Xcode command line tools)
 cd 源码
-./build.sh              # 本机调试，装到桌面
-./build.sh share        # 通用二进制（Intel + Apple 芯片），打包到 发给朋友/
-./build.sh release      # 需要 Developer ID 证书，含公证
+./build.sh              # local debug build, installed alongside the repository
+./build.sh share        # universal binary (Intel + Apple silicon), packaged into 发给朋友/
+./build.sh release      # requires a Developer ID certificate; includes notarisation
 
-# 图标（改了太阳造型才需要重跑）
-./图标/生成图标.sh          # 浅色底
-./图标/生成图标.sh dark     # 深色底
+# Icons (only needed after changing the shape of the sun)
+./图标/生成图标.sh          # light background
+./图标/生成图标.sh dark     # dark background
 
-# Windows 版（在 macOS 上交叉编译，需要 .NET 10 SDK：brew install dotnet）
+# Windows build, cross-compiled on macOS (requires the .NET 10 SDK: brew install dotnet)
 cd Windows源码
 ./构建.sh x64           # win-x64
-./构建.sh arm64         # win-arm64（骁龙 X 这类）
-./构建.sh check         # 只跑验证：Core 逻辑 + 离屏渲染出 PNG
+./构建.sh arm64         # win-arm64 (Snapdragon X and similar)
+./构建.sh check         # verification only: core logic plus offscreen renders to PNG
 ```
 
-版本号的唯一来源是仓库根的 `VERSION` 文件，两个构建脚本都从它读。
+The `VERSION` file at the repository root is the single source of truth for the
+version number; both build scripts read it.
 
 ---
 
-## 仓库结构
+## Repository layout
 
 ```
-VERSION                     版本号唯一来源
-源码/                       macOS 版（Swift + AppKit）
-  ├ PetView.swift           全部绘制与动画状态
-  ├ App.swift               窗口、菜单、托盘、能耗、无障碍
-  ├ Activity.swift          读 Claude Code 会话记录
-  ├ Usage.swift             用量接口解析与取数调度
-  ├ Auth.swift              OAuth PKCE 与令牌存储
+VERSION                     single source of truth for the version number
+源码/                       macOS build (Swift + AppKit)
+  ├ PetView.swift           all drawing and animation state
+  ├ App.swift               window, menus, tray, power, accessibility
+  ├ Activity.swift          reads Claude Code transcripts
+  ├ Usage.swift             usage endpoint parsing and fetch scheduling
+  ├ Auth.swift              OAuth PKCE and token storage
   ├ Model.swift / Theme.swift
-  └ 图标/                   图标生成器
-Windows源码/                Windows 版（C# + Avalonia）
-  ├ src/Sundial.Core/       纯逻辑，不依赖 UI —— 可在 macOS 上跑测试
-  ├ src/Sundial.App/        Avalonia 界面
+  └ 图标/                   icon generator
+Windows源码/                Windows build (C# + Avalonia)
+  ├ src/Sundial.Core/       pure logic, no UI dependency — testable on macOS
+  ├ src/Sundial.App/        Avalonia interface
   └ tests/
-     ├ LiveCheck/           拿本机真实记录跑 Core 层
-     └ RenderCheck/         离屏渲染成 PNG，与 macOS 版逐帧比对
-docs/                       README 用图
-  └ 生成演示GIF.swift        离屏逐帧渲染演示 GIF（不是录屏，重跑结果一致）
-说明.md                     维护说明：设计决定与踩过的坑
+     ├ LiveCheck/           runs the core layer against real local transcripts
+     └ RenderCheck/         renders offscreen to PNG for frame-by-frame comparison with macOS
+docs/                       images used by this README
+  └ 生成演示GIF.swift        offscreen frame-by-frame renderer for the demo GIFs
+                            (not a screen recording — reruns are identical)
+说明.md                     maintenance notes: design decisions and the traps hit along the way
 ```
 
-两个平台共用同一套造型参数与行为逻辑，15 项关键常量逐个比对保持一致。
+Both platforms share the same shape parameters and behavioural logic; fifteen
+key constants are compared item by item to keep them in step.
 
 ---
 
-## 数据与隐私
+## Data and privacy
 
-会话那半边**只读本地文件**，读到的东西如下——写细一点，因为「不读正文」
-这种说法很容易说过头：
+The session half **only reads local files**. What it reads is set out below in
+some detail, because "it doesn't read your messages" is the sort of claim that
+is very easily overstated:
 
-| 读什么 | 用来干嘛 | 会显示出来吗 |
+| What is read | What for | Displayed? |
 |---|---|---|
-| 记录类型、时间戳 | 判断忙/闲、算本轮跑了多久 | 否 |
-| `custom-title` / `ai-title` | 会话标题 | **会**，常驻在桌面上 |
-| token 计数、模型名 | 上下文占用百分比 | 是（只有数字） |
-| 用户消息正文的**开头** | 认出 `[Request interrupted`（Esc 中断）和 `<task-notification`（后台任务完成）这两种标记 | 否 |
+| Record type, timestamps | Busy/idle detection, elapsed time for the current turn | No |
+| `custom-title` / `ai-title` | Session title | **Yes** — permanently, on your desktop |
+| Token counts, model name | Context consumption percentage | Yes (the figures only) |
+| The **opening characters** of user messages | Recognising `[Request interrupted` (Esc) and `<task-notification` (background task finished) | No |
 
-最后一条要说清楚：解析器**确实会把用户消息的正文读进内存**
-（[Activity.swift](源码/Activity.swift) 里拼成字符串后做前缀判断），
-只是不显示、不留存、不外发。说「完全不碰正文」是不准确的。
+That last row deserves to be spelt out: the parser **does read the text of your
+messages into memory** — [Activity.swift](源码/Activity.swift) assembles it into
+a string in order to test its prefix. It is not displayed, not retained and not
+sent anywhere, but saying the app "never touches your messages" would not be accurate.
 
-另外，**会话标题会显示在桌面上**——如果你的标题里带着敏感内容，
-截图或投屏时它是可见的。
+Note also that **session titles are shown on your desktop**. If a title contains
+something sensitive, it is visible in screenshots and while screen-sharing.
 
-- 登录令牌只存在本地：macOS 在应用支持目录（权限 0600），
-  Windows 用 DPAPI 加密（只有你的账户能解开）
-- 除了下面那个用量接口，不向任何地方发送数据；没有统计，没有崩溃收集
-
----
-
-## ⚠️ 请先读这一段
-
-**这是一个非官方的个人项目，与 Anthropic 没有任何关系。**
-
-有两处依赖是不受保障的：
-
-1. **用量数据取自未公开接口** `GET /api/oauth/usage`。它没有任何兼容性承诺，
-   随时可能改动或消失。真出问题时，App 会显示"接口返回了看不懂的数据"，
-   而不是编一个数字给你。
-2. **自己登录那条备选路径复用了 Claude Code 的 OAuth `client_id`**，
-   而不是独立申请的凭据。这个 ID 本身不是秘密，但用第三方程序走它的授权流程
-   **可能不符合 Anthropic 的服务条款**，也不排除这条流程日后被收紧。
-   走默认那条（沿用已有凭证）时不涉及此项——它不发起任何授权请求。
-
-现实一点说，这两条的后果是**用量圈哪天不转了**，而不是你的账号会出事：
-取用量本身是一次 `GET`，不写任何东西，也不消耗额度。
-
-但有一点必须说明：**自己登录那条路申请的权限比「读用量」需要的多**。
-scope 是 `org:create_api_key user:profile user:inference`
-（[Auth.swift:14](源码/Auth.swift#L14)）——这是 Claude Code 自己的那套，
-直接照搬过来的，不是按本 App 的需要裁剪的。Sundial 只用它调用量接口，
-但**授权页上你批准的范围确实更大**。介意的话就别走这条，
-沿用已有凭证那条不发起任何授权请求。
-
-**这两条都只影响用量圈。** 会话状态那半边只读本地记录文件，
-不依赖任何接口，也不需要账号。
+- The sign-in token is stored locally only: on macOS in the application support
+  directory (mode 0600), on Windows encrypted with DPAPI, so only your account
+  can read it.
+- Apart from the usage endpoint described below, nothing is sent anywhere. No
+  analytics, no crash reporting.
 
 ---
 
-## 已知限制
+## ⚠️ Please read this first
 
-- macOS 版是 ad-hoc 签名、**未经公证**（只有免费的 Apple Development 证书，
-  签不了 Developer ID），首次打开要手动去隔离
-- Windows 版只支持**原生安装**的 Claude Code，读不到 WSL 里的会话记录
-  （用量圈不受影响）
-- Windows 版的卡片底是自绘的半透明圆角底，不是系统亚克力。
-  亚克力只认整块方形窗口，而这只桌宠形状每帧都在变，
-  开了反而会在圆角外露出方底。菜单里有实验开关，观感仍比 macOS 版弱一档
-- 图标不随系统明暗自动切换（macOS 的传统 `.icns` 没有这个能力）。
-  深色版在 `源码/Sundial-dark.icns`，跑 `./图标/生成图标.sh dark` 可切换
-- **未在真机验证过**：Intel Mac、macOS 13/14/15、VoiceOver 实际朗读；
-  Windows 的托盘菜单、开机自启、亚克力模糊
-  （Windows 的登录流程已在真机验证）
+**This is an unofficial personal project with no connection to Anthropic.**
+
+Two of its dependencies come with no guarantees whatsoever.
+
+1. **Usage figures come from an undocumented endpoint,** `GET /api/oauth/usage`.
+   Nothing about it is promised to remain stable; it may change or disappear at
+   any time. When that happens the app will say it received data it could not
+   make sense of, rather than inventing a figure for you.
+2. **The fallback sign-in route reuses Claude Code's own OAuth `client_id`**
+   instead of credentials registered for this app. The identifier itself is not a
+   secret, but putting a third-party program through that authorisation flow
+   **may not be consistent with Anthropic's terms of service**, and the route may
+   well be tightened in future. The default route — reusing credentials that
+   already exist — is unaffected, as it makes no authorisation request at all.
+
+Realistically the consequence of both is that **the dials stop turning one day**,
+not that something happens to your account: reading usage is a single `GET`,
+writes nothing, and consumes no allowance.
+
+One point does need stating plainly, though: **the fallback sign-in requests
+broader permissions than reading usage requires.** The scope is
+`org:create_api_key user:profile user:inference`
+([Auth.swift:14](源码/Auth.swift#L14)) — Claude Code's own set, carried over
+verbatim rather than pared down to what this app needs. Sundial uses it solely to
+call the usage endpoint, but **the scope you approve on the authorisation page is
+genuinely wider than that**. If that bothers you, do not take this route; reusing
+existing credentials makes no authorisation request.
+
+**Both points affect the usage dials only.** The session half reads local
+transcript files, depends on no endpoint, and needs no account.
 
 ---
 
-## 许可
+## Known limitations
 
-MIT，见 [LICENSE](LICENSE)。
+- The macOS build is ad-hoc signed and **not notarised** (only a free Apple
+  Development certificate is available, which cannot produce a Developer ID
+  signature), so the quarantine flag has to be cleared by hand on first launch.
+- The Windows build supports only a **natively installed** Claude Code; it cannot
+  see transcripts inside WSL. The usage dials are unaffected.
+- The Windows card is a hand-drawn translucent panel rather than system acrylic.
+  Acrylic applies only to a whole rectangular window, and this pet changes shape
+  every frame, so enabling it exposes a rectangular backing outside the rounded
+  corners. There is an experimental switch in the menu; either way this aspect
+  remains a notch behind the macOS build.
+- The icon does not follow the system light/dark setting — the traditional macOS
+  `.icns` format cannot express that. A dark version lives at
+  `源码/Sundial-dark.icns`; run `./图标/生成图标.sh dark` to switch.
+- **Not yet verified on real hardware:** Intel Macs, macOS 13/14/15, VoiceOver
+  actually speaking the interface, and on Windows the tray menu, launch at login
+  and acrylic blur. The Windows sign-in flow *has* been verified on real hardware.
+
+---
+
+## Licence
+
+MIT — see [LICENSE](LICENSE).
