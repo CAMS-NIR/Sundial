@@ -33,6 +33,28 @@ SRC=(${(f)"$(ls *.swift | grep -v '^main.swift$')"} main.swift)
 # 别人把仓库克隆到哪儿，产物就出现在哪儿；写死的话不但找不到，
 # 还可能覆盖掉别人桌面上同名的目录
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
+
+# 打包成 zip。必须先剥扩展属性再 ditto：
+# macOS 15 起会给每个文件挂 com.apple.provenance，而 `ditto -c -k` 会把扩展属性
+# 编码成 AppleDouble（._Contents、._Info.plist 之类）一并塞进 zip。别人用 unzip
+# 解开时这些 ._* 会落进 .app 里，封签当场失效——codesign 报
+# 「a sealed resource is missing or invalid」，而签名坏掉的 App 在新版 macOS 上
+# 是根本打不开的，「仍要打开」也救不回来。
+# --norsrc --noextattr 是第二道保险。剥属性放在签名之后：签名存在 Mach-O 和
+# _CodeSignature 里，不在扩展属性里，剥掉不影响封签（下面会验证）
+zip_app() {
+  xattr -cr "$1"
+  ditto -c -k --keepParent --norsrc --noextattr "$1" "$2"
+  # 验证这一步不是可选的：把 zip 解开重新验签，通过了才算真的能发出去
+  local t="$(mktemp -d)"
+  ditto -x -k "$2" "$t"
+  if ! codesign --verify --deep --strict "$t/$(basename "$1")" 2>/dev/null; then
+    echo "✗ 解压后签名失效，包不能发。检查 zip 里有没有 ._* 残留：" >&2
+    unzip -l "$2" | grep '\._\|__MACOSX' >&2
+    rm -rf "$t"; exit 1
+  fi
+  rm -rf "$t"
+}
 BUILD="${TMPDIR:-/tmp}/sundial-build"
 rm -rf "$BUILD" && mkdir -p "$BUILD"
 
@@ -87,14 +109,14 @@ if [[ "$MODE" == "release" ]]; then
            --identifier "$BUNDLE_ID" --sign "$ID" "$APP"
 
   ZIP="$BUILD/$APP_NAME.zip"
-  ditto -c -k --keepParent "$APP" "$ZIP"
+  zip_app "$APP" "$ZIP"
   echo "提交公证（几十秒到几分钟）..."
   xcrun notarytool submit "$ZIP" --keychain-profile "$NOTARY_PROFILE" --wait
   xcrun stapler staple "$APP"         # 把公证票据钉进 App，离线也能验证
 
   rm -f "$ZIP"
   OUT="$REPO/发给朋友/$APP_NAME.zip"
-  ditto -c -k --keepParent "$APP" "$OUT"
+  zip_app "$APP" "$OUT"
   echo "✓ 可分发文件：$OUT"
   spctl -a -vv "$APP" 2>&1 | tail -2
 elif [[ "$MODE" == "debug" ]]; then
@@ -111,6 +133,6 @@ if [[ "$MODE" == "share" ]]; then
   codesign --force --sign - "$APP"
   OUT="$REPO/发给朋友/$APP_NAME.zip"
   rm -f "$OUT"
-  ditto -c -k --keepParent "$APP" "$OUT"
+  zip_app "$APP" "$OUT"
   echo "✓ 可分发文件：$OUT（朋友首次打开需去隔离，见 给朋友看的说明.txt）"
 fi
