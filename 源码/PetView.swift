@@ -73,6 +73,8 @@ final class PetView: NSView {
     }
     var onHoverProgress: (() -> Void)?               // 每帧回调，驱动窗口高度
     private var mousePoint: NSPoint?                 // 视图内鼠标位置（引力源）
+    /// 离屏渲染演示 GIF 用：直接给定光标位置，跳过真实光标。正常运行恒为 nil
+    var mouseOverride: NSPoint?
     private var petCenter: NSPoint = .zero           // 上一帧太阳中心
     private var rayPull = [CGFloat](repeating: 0, count: PetView.rayCount)  // 各光芒伸长量
     private var bodyLean = NSPoint.zero              // 整只往鼠标方向偏一点
@@ -231,8 +233,14 @@ final class PetView: NSView {
     /// 这样光标还在窗口外靠近时，太阳就已经有反应了——「引力」本来就该是隔空的。
     /// 超出作用半径就置空，免得一直按满帧重绘。
     private func updateMousePoint() {
-        guard let win = window else { mousePoint = nil; return }
-        let p = convert(win.convertPoint(fromScreen: NSEvent.mouseLocation), from: nil)
+        let p: NSPoint
+        if let o = mouseOverride {
+            p = o
+        } else if let win = window {
+            p = convert(win.convertPoint(fromScreen: NSEvent.mouseLocation), from: nil)
+        } else {
+            mousePoint = nil; return
+        }
         guard petCenter != .zero else { mousePoint = p; return }
         let dx = p.x - petCenter.x, dy = p.y - petCenter.y
         mousePoint = dx * dx + dy * dy <= 230 * 230 ? p : nil
@@ -482,8 +490,35 @@ final class PetView: NSView {
         ctx.restoreGState()
     }
 
+    /// 卡片边缘映光：左上亮、右下淡的一圈内描边。
+    /// 系统玻璃自带的高光很弱，深色下卡片几乎和桌面糊在一起、看不出边界在哪；
+    /// 补这一圈之后才立得起来。跟着展开进度一起淡入，收起时不画。
+    private func drawCardEdge(_ rect: NSRect, expand e: CGFloat) {
+        guard e > 0.01, rect.width > 2, rect.height > 2 else { return }
+        let a = easeInOut(min(1, e / 0.45))
+        let r0 = min(rect.width, rect.height) / 2
+        let rad = min(r0 + (PetView.cardRadius - r0) * e, r0)
+        let w: CGFloat = 1.4
+        let band = NSBezierPath()
+        band.append(NSBezierPath(roundedRect: rect, xRadius: rad, yRadius: rad))
+        band.append(NSBezierPath(roundedRect: rect.insetBy(dx: w, dy: w),
+                                 xRadius: max(0, rad - w), yRadius: max(0, rad - w)))
+        band.windingRule = .evenOdd
+        let dark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        NSGraphicsContext.saveGraphicsState()
+        band.setClip()
+        // 视图是翻转的：+y 向下，所以 45° 指向右下，渐变起点落在左上角
+        NSGradient(colors: [NSColor(calibratedWhite: 1, alpha: (dark ? 0.55 : 0.95) * a),
+                            NSColor(calibratedWhite: dark ? 1 : 0.55,
+                                    alpha: (dark ? 0.03 : 0.14) * a)],
+                   atLocations: [0, 0.72], colorSpace: .deviceRGB)?
+            .draw(in: rect, angle: 45)
+        NSGraphicsContext.restoreGraphicsState()
+    }
+
     override func draw(_ dirtyRect: NSRect) {
         blockRects.removeAll()
+        loginButtonRect = .zero   // 不复位的话，会话块一出现就会踩到上一帧留下的登录热区
         // 玻璃已被隐藏，这里补一个不透明背板，保证可读。
         // 但完全收起时同样不画——闲着只剩一颗太阳，没有内容需要背板托底
         let e0 = expandProgress
@@ -496,6 +531,7 @@ final class PetView: NSView {
                          xRadius: min(radius0, bounds.width / 2),
                          yRadius: min(radius0, bounds.height / 2)).fill()
         }
+        drawCardEdge(bounds, expand: e0)
         // 卡片底由 NSGlassEffectView 负责（真正的 Liquid Glass），这里只画内容
         let card = bounds
         let e = expandProgress

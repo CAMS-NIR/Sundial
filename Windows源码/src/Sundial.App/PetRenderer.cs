@@ -378,12 +378,45 @@ public sealed class PetRenderer
         return outv;
     }
 
+    /// <summary>
+    /// 卡片边缘映光：左上亮、右下淡的一圈描边。与 macOS 版 PetView.drawCardEdge() 对齐。
+    /// 没有这一圈的话，深色下卡片几乎和桌面糊在一起、看不出边界在哪。
+    /// 跟着展开进度一起淡入，收起时不画。
+    /// </summary>
+    private static void DrawCardEdge(DrawingContext ctx, Rect bounds, double e)
+    {
+        if (e <= 0.01 || bounds.Width <= 2 || bounds.Height <= 2) return;
+        var a = Sundial.App.Theme.EaseInOut(Math.Clamp(e / 0.45, 0, 1));
+        var r0 = Math.Min(bounds.Width, bounds.Height) / 2;
+        var rad = Math.Min(r0 + (CardRadius - r0) * e, r0);
+        const double w = 1.4;
+        var hi = Sundial.App.Theme.WithAlpha(Colors.White, (Theme.IsDark ? 0.55 : 0.95) * a);
+        var lo = Sundial.App.Theme.WithAlpha(
+            Theme.IsDark ? Colors.White : Color.FromRgb(140, 140, 140),
+            (Theme.IsDark ? 0.03 : 0.14) * a);
+        var brush = new LinearGradientBrush
+        {
+            StartPoint = new RelativePoint(0, 0, RelativeUnit.Relative),   // 亮部压在左上角
+            EndPoint = new RelativePoint(1, 1, RelativeUnit.Relative),
+            GradientStops = new GradientStops
+            {
+                new GradientStop(hi, 0),
+                new GradientStop(lo, 0.72),
+            },
+        };
+        // 描边是骑在路径上的，往里收半个线宽，免得外侧半条被窗口边缘切掉
+        var r = bounds.Deflate(w / 2);
+        var rr = Math.Max(0, rad - w / 2);
+        ctx.DrawRectangle(null, new Pen(brush, w), r, rr, rr);
+    }
+
     // MARK: 画一帧
 
     public void Render(DrawingContext ctx, Rect bounds)
     {
         _blockRects.Clear();
         _loginButtonRect = default;
+        // 与 macOS 版 PetView.drawCardEdge() 对齐
 
         // 玻璃已被隐藏，这里补一个不透明背板，保证可读。
         // 但完全收起时同样不画——闲着只剩一颗太阳，没有内容需要背板托底。
@@ -402,6 +435,7 @@ public sealed class PetRenderer
                 Math.Min(radius0, bounds.Width / 2),
                 Math.Min(radius0, bounds.Height / 2));
         }
+        DrawCardEdge(ctx, bounds, e0);
 
         // 卡片底由窗口层的半透明材质负责，这里只画内容
         var card = bounds;
