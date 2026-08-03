@@ -7,15 +7,15 @@ macOS 与 Windows 双平台。
 只有两个用量圈需要 Claude Max / Pro。
 
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/demo-dark.gif">
-    <img src="docs/demo.gif" width="226"
-         alt="演示：打盹的太阳 → 鼠标移上去展开 → 会话开始，块卷入 → 跑完变未读 → 移开收起">
-  </picture>
+  <img src="docs/demo.gif" width="380"
+       alt="白天模式演示：打盹的太阳 → 悬停展开 → 会话开始 → 鼠标靠近，光芒被吸过去 → 跑完变未读 → 收起">
+  <img src="docs/demo-dark.gif" width="380"
+       alt="夜间模式演示：同一段流程的深色配色">
 </p>
 
 <p align="center"><sub>
-打盹 → 悬停展开 → 会话开始 → 跑完未读 → 收起。深浅两套配色跟随系统。
+左：白天模式　右：夜间模式（跟随系统自动切换）<br>
+打盹 → 悬停展开 → 会话开始 → 鼠标靠近时光芒被吸过去 → 无人打扰时被两侧仪表一吸一斥地拽着呼吸 → 跑完未读 → 收起
 </sub></p>
 
 ---
