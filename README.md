@@ -6,7 +6,17 @@ macOS 与 Windows 双平台。
 **不需要订阅也能用**——会话状态那半边读的是本地文件，装上就能看；
 只有两个用量圈需要 Claude Max / Pro。
 
-![截图](docs/screenshot-macos.png)
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/demo-dark.gif">
+    <img src="docs/demo.gif" width="226"
+         alt="演示：打盹的太阳 → 鼠标移上去展开 → 会话开始，块卷入 → 跑完变未读 → 移开收起">
+  </picture>
+</p>
+
+<p align="center"><sub>
+打盹 → 悬停展开 → 会话开始 → 跑完未读 → 收起。深浅两套配色跟随系统。
+</sub></p>
 
 ---
 
@@ -181,6 +191,8 @@ Windows源码/                Windows 版（C# + Avalonia）
   └ tests/
      ├ LiveCheck/           拿本机真实记录跑 Core 层
      └ RenderCheck/         离屏渲染成 PNG，与 macOS 版逐帧比对
+docs/                       README 用图
+  └ 生成演示GIF.swift        离屏逐帧渲染演示 GIF（不是录屏，重跑结果一致）
 说明.md                     维护说明：设计决定与踩过的坑
 ```
 
