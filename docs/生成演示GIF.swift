@@ -29,13 +29,20 @@ let darkMode = CommandLine.arguments.contains("dark")   // 视频默认白天模
 
 // MARK: - 演示数据
 
+/// **这三个百分比不能随便改**：仪表拉扯的角频率是 rate = 0.9 + 0.011×用量%，
+/// 要让它在一个循环里正好转整数圈，用量% 是被 loopT 反解出来的。
+/// 在 5–99 里只有 21% 近乎精确（相位残差 0.00044 rad ＝ 正常一帧移动量的 2%），
+/// 次好的 55% 是 0.049 rad ≈ 两帧。实测接缝：两个圈都用 21% 是 1.17×基准，
+/// 换成 21/55 就掉到 2.07×——所以两个圈都取 21%。
+/// 代价是演示里的太阳是放松表情、圆环也偏空，这是闭环换来的。
+/// 「每周 · 全部模型」不上圆环、不参与拉扯，只要小于 Fable 即可随意。
 func demoRows() -> [UsageRow] {
     [
-        UsageRow(label: "5 小时", percent: 70,
+        UsageRow(label: "5 小时", percent: 21,
                  resetAt: Date().addingTimeInterval(66 * 60), priority: 0),
-        UsageRow(label: "每周 · 全部模型", percent: 43,
+        UsageRow(label: "每周 · 全部模型", percent: 12,
                  resetAt: Date().addingTimeInterval(3 * 86400), priority: 1),
-        UsageRow(label: "每周 · Fable", percent: 60,
+        UsageRow(label: "每周 · Fable", percent: 21,
                  resetAt: Date().addingTimeInterval(3 * 86400 - 10000), priority: 2),
     ]
 }
@@ -59,6 +66,7 @@ final class Scene {
     private let window: NSWindow
     private(set) var t: CGFloat = 0
     private var nextBeat = 0
+    private let schedule = beatList()
 
     init() {
         model.loading = false
@@ -92,8 +100,8 @@ final class Scene {
     }
 
     func step(_ dt: CGFloat) {
-        while nextBeat < beats.count, t >= beats[nextBeat].at {
-            beats[nextBeat].action(self); nextBeat += 1
+        while nextBeat < schedule.count, t >= schedule[nextBeat].at {
+            schedule[nextBeat].action(self); nextBeat += 1
         }
         view.mouseOverride = demoMouse(t)
         view.advance(dt)
@@ -125,38 +133,60 @@ final class Scene {
 
 // MARK: - 时间轴
 
-// GIF 的帧延迟以 1/100 秒为单位，硬上限 100fps，浏览器普遍再夹到 50fps 左右。
-// 视频没有这个限制，直接给 60
-let fps: CGFloat = isVideo ? 60 : 25
-let dt = 1 / fps
-// 循环长度不写死，在这个区间里挑一个首末最接近的（见 findLoopLength）
-let minLoop: CGFloat = 12.0
-let maxLoop: CGFloat = 14.0
-/// 收尾交叉淡入的长度（秒）。见下方 findLoopLength 的说明
-let tailFade: CGFloat = 0.45
+// 要能首尾相接地循环播放，收尾时每一项动画都必须回到开头那一刻的状态。
+// 空闲时同时跑着四项，各自的周期互不相通：
+//   ① 光芒转角 sunSpin —— 停下时冻在原地。这项在 PetView 里解掉了
+//      （停下归到最近的 40° 卡点，9 次对称所以看不出来，但姿态唯一确定）
+//   ② zzz 飘动 —— fmod(t·0.42, 1)，周期 1/0.42 秒，跟绝对时间走
+//   ③ 两侧仪表拉扯 —— sin(t·rate)，rate = 0.9 + 0.011×用量%，也跟绝对时间走
+//   ④ 身体呼吸 —— 累积相位，醒着 1.6 睡着 1.0 rad/s，跟时间轴的编排有关
+//
+// ②③ 是绝对时间的函数，所以循环长度必须同时是它们周期的整数倍。
+// 再加上「整数帧」这个约束，最小解是 T = 50/3 秒：
+//   zzz：0.42 × 50/3 = 7 周，整数 ✓
+//   60fps：50/3 × 60 = 1000 帧，整数 ✓
+// T 一定，③ 就把用量百分比反解出来了（见 demoRows 的说明）。
+// ④ 没有解析解，用二分调「会话跑完」的时刻去凑（见 solveBreath）。
+let loopT: CGFloat = 50.0 / 3.0
+let loopFrames = isVideo ? 1000 : 400
+let dt = loopT / CGFloat(loopFrames)
+let fps = CGFloat(loopFrames) / loopT
+// GIF 的帧延迟只能存 1/100 秒的整数倍。400 帧对应 0.04167 秒，存成 0.04——
+// 播放会快 4%，但**帧序列本身是闭合的**，无缝与否只看画面内容不看播放速度
+let gifDelay = 0.04
+
+// 暖机：先空转一整个周期再开始录。
+// 光芒伸长量 rayPull、圆环缓动 ringShown 这些是低通滤波量，从初值 0 出发要
+// 若干秒才收敛到稳态；不暖机的话第 0 帧还在收敛途中，而末帧早已稳态，接不上。
+// 空转整整一个周期，②③ 又正好回到 t=0 时的相位，一举两得
+let warmT = loopT
+
+/// 会话「跑完转未读」的时刻。这是留给呼吸相位的调节旋钮——
+/// 醒着 1.6、睡着 1.0 rad/s，把这个时刻挪早挪晚就改变了醒着的总时长
+var sessionEnd: CGFloat = 9.50
 
 struct Beat { let at: CGFloat; let action: (Scene) -> Void }
-let beats: [Beat] = [
-    Beat(at: 0.00) { $0.model.hovered = false; $0.model.sessions = [] },
-    Beat(at: 0.70) { $0.model.hovered = true },                       // 鼠标移上来 → 展开
-    Beat(at: 1.60) { $0.model.sessions = [demoSession(elapsed: 95)] },// 会话开始 → 块卷入
-    Beat(at: 9.50) { s in                                             // 跑完 → 未读
+func beatList() -> [Beat] { [
+    Beat(at: warmT + 0.00) { $0.model.hovered = false; $0.model.sessions = [] },
+    Beat(at: warmT + 0.70) { $0.model.hovered = true },
+    Beat(at: warmT + 1.60) { $0.model.sessions = [demoSession(elapsed: 95)] },
+    Beat(at: warmT + sessionEnd) { s in
         var x = demoSession(elapsed: 95)
         x.busy = false; x.unread = true; x.finishedAt = Date()
         s.model.sessions = [x]
     },
-    Beat(at: 10.35) { $0.model.hovered = false },
-    Beat(at: 10.60) { $0.model.sessions = [] },                       // 块卷走 → 收起
-]
+    Beat(at: warmT + sessionEnd + 0.85) { $0.model.hovered = false },
+    Beat(at: warmT + sessionEnd + 1.10) { $0.model.sessions = [] },
+] }
 
 // 鼠标引力段：光标从右下进场，贴着太阳绕过去，再从左下离场。
 // 两端快、中间慢——停留久一点才看得清光芒被拽长、身体前倾、眼珠跟着转。
-// 之后留一段无人打扰的安静时间（5.4s→9.5s，约 4 秒），
-// 正好够看完一轮「被两侧仪表一吸一斥」的呼吸：满格那侧周期约 3.8 秒
+// 之后留一段无人打扰的安静时间，看「被两侧仪表一吸一斥」的呼吸
 let mouseFrom: CGFloat = 2.30, mouseTo: CGFloat = 5.40
 func demoMouse(_ t: CGFloat) -> NSPoint? {
-    guard t >= mouseFrom, t <= mouseTo else { return nil }
-    let u = (t - mouseFrom) / (mouseTo - mouseFrom)
+    let tt = t - warmT
+    guard tt >= mouseFrom, tt <= mouseTo else { return nil }
+    let u = (tt - mouseFrom) / (mouseTo - mouseFrom)
     let uu = min(1, max(0, u + 0.12 * sin(2 * .pi * u)))   // 中段放慢
     let a = (12 + 168 * uu) * .pi / 180
     let r = 118 - 84 * sin(.pi * uu)
@@ -323,88 +353,51 @@ func renderFrame(_ sc: Scene) -> CGImage? {
     return out.cgImage
 }
 
-// MARK: - 找无缝循环点
+// MARK: - 对齐呼吸相位
 
-// 要能循环播放，最后一帧的下一帧必须与第一帧完全一致。对不上的有三样：
-// 光芒转角、zzz 相位、呼吸相位——都跟着绝对时间走，周期还互不相通
-// （zzz 是 1/0.42 秒，呼吸醒着 1.6 睡着 1.0 rad/s，中间还有过渡段）。
-// 与其去解这几个周期的最小公倍数，不如直接量：先用小尺寸跑一遍，
-// 把候选长度那几帧逐像素跟第 0 帧比，挑差异最小的。
-//
-// 但**光挑长度是接不上的**。实测接缝差 1.9/255，而空闲段相邻帧只差 0.13，
-// 差 15 倍；而且候选值在 ±5 帧内都是 1.9~2.1，说明有个调不掉的常数残差。
-// 把差异图打出来看，问题出在 zzz 和部分光芒的尖端——空闲时同时跑着四个
-// 互不通约的振荡：zzz 0.42 周/秒、呼吸 1.0 rad/s、左仪表拉扯 1.67、
-// 右仪表拉扯 1.56（后两个的频率跟着各自的用量走）。四个周期凑不到一起，
-// 没有任何时长能让它们同时回到原点。
-//
-// 所以最后一帧直接**取第 0 帧本身**，前面 tailFade 秒交叉淡过去。
-// 首末严格相同，接缝在两张一模一样的图之间，而淡入发生在光芒本来就在
-// 缓慢移动的时候，看不出来。挑长度这一步仍然保留——残差越小，淡入要吃的越少。
-//
-// 光芒转角那一项则是真的解掉了：它停下时冻在原地、之后不再变化，
-// 所以 PetView 那边加了「停下归到最近的 40° 卡点」，让空闲姿态唯一确定
-func findLoopLength() -> (frames: Int, diff: Double) {
-    let probe = Scene()
-    let maxN = Int(maxLoop * fps), minN = Int(minLoop * fps)
-    var first: NSBitmapImageRep?
-    var best = (n: minN, d: Double.infinity)
-    var all: [(Int, Double)] = []
-    for i in 0...maxN {
-        probe.step(dt)
-        guard let rep = probe.petBitmap(scale: 1) else { continue }
-        if i == 0 { first = rep; continue }
-        guard i >= minN, let f = first,
-              rep.pixelsWide == f.pixelsWide, rep.pixelsHigh == f.pixelsHigh,
-              let a = f.bitmapData, let b = rep.bitmapData else { continue }
-        let n = f.bytesPerRow * f.pixelsHigh
-        var sum = 0
-        for k in stride(from: 0, to: n, by: 4) {   // 只比 alpha 之外的三个通道
-            sum += abs(Int(a[k]) - Int(b[k])) + abs(Int(a[k+1]) - Int(b[k+1]))
-                 + abs(Int(a[k+2]) - Int(b[k+2]))
-        }
-        let d = Double(sum) / Double(n / 4 * 3)
-        all.append((i, d))
-        if d < best.d { best = (i, d) }
-    }
-    // 光有绝对差值说明不了问题——得跟「相邻两帧的正常差异」比。
-    // 接缝处的差异不大于普通一帧的步进，才算真的接得上
-    if ProcessInfo.processInfo.environment["LOOPDEBUG"] != nil {
-        let sorted = all.sorted { $0.1 < $1.1 }.prefix(6)
-        for (i, d) in sorted {
-            print(String(format: "    候选 %d 帧 = %.2f 秒   差 %.3f", i, Double(i) / Double(fps), d))
-        }
-    }
-    return (best.n, best.d)
+/// 空转一个周期后再跑一整轮，返回呼吸相位在这一轮里的净增量。
+/// 只推进不绘制——呼吸只跟 sleepT 和 dt 有关，与画不画无关，所以很快
+func breathGain() -> CGFloat {
+    let sc = Scene()
+    for _ in 0..<loopFrames { sc.step(dt) }
+    let a = sc.view.breathPhaseSnapshot
+    for _ in 0..<loopFrames { sc.step(dt) }
+    return sc.view.breathPhaseSnapshot - a
 }
 
-/// 空闲段里相邻两帧的平均像素差，作为「接得上」的基准线
-func adjacentBaseline() -> Double {
-    let probe = Scene()
-    let n = Int(minLoop * fps)
-    for _ in 0..<n { probe.step(dt) }
-    guard let a = probe.petBitmap(scale: 1)?.bitmapData else { return .nan }
-    let bytes = 88 * 4 * 88
-    var prev = [UInt8](repeating: 0, count: bytes)
-    memcpy(&prev, a, bytes)
-    probe.step(dt)
-    guard let b = probe.petBitmap(scale: 1)?.bitmapData else { return .nan }
-    var sum = 0
-    for k in stride(from: 0, to: bytes, by: 4) {
-        sum += abs(Int(prev[k]) - Int(b[k])) + abs(Int(prev[k+1]) - Int(b[k+1]))
-             + abs(Int(prev[k+2]) - Int(b[k+2]))
+/// 呼吸相位没有解析解，二分「会话跑完」的时刻去凑：
+/// 醒着 1.6、睡着 1.0 rad/s，把它挪晚一秒，一轮下来就多攒 0.6 rad。
+/// 目标是让净增量落在 2π 的整数倍上
+func solveBreath() {
+    let twoPi = CGFloat.pi * 2
+    var lo: CGFloat = 4.5, hi: CGFloat = 12.5
+    sessionEnd = lo; let gLo = breathGain()
+    sessionEnd = hi; let gHi = breathGain()
+    // 取区间内可达的那个整数倍
+    let target = (gLo / twoPi).rounded(.up) * twoPi
+    guard target <= gHi else {
+        print(String(format: "  呼吸：区间 [%.2f, %.2f] 内没有可达的 2π 整数倍（净增量 %.3f–%.3f），保持默认",
+                     lo, hi, gLo, gHi))
+        sessionEnd = 9.50
+        return
     }
-    return Double(sum) / Double(bytes / 4 * 3)
+    for _ in 0..<28 {
+        let mid = (lo + hi) / 2
+        sessionEnd = mid
+        if breathGain() < target { lo = mid } else { hi = mid }
+    }
+    sessionEnd = (lo + hi) / 2
+    let g = breathGain()
+    let residual = abs(g - (g / twoPi).rounded() * twoPi)
+    print(String(format: "  呼吸：会话结束点 %.4f 秒，净增量 %.4f rad = %.3f 圈，残差 %.2e rad",
+                 sessionEnd, g, g / twoPi, residual))
 }
-
-let (loopFrames, loopDiff) = findLoopLength()
-let baseline = adjacentBaseline()
-print(String(format: "  无缝点：%d 帧（%.2f 秒），接缝差 %.3f/255；空闲段相邻帧差 %.3f/255",
-             loopFrames, Double(loopFrames) / Double(fps), loopDiff, baseline))
+solveBreath()
 
 // MARK: - 正式渲染
 
 let scene = Scene()
+for _ in 0..<loopFrames { scene.step(dt) }      // 暖机一整轮，不录
 var frames: [CGImage] = []
 while frames.count < loopFrames {
     scene.step(dt)
@@ -412,30 +405,36 @@ while frames.count < loopFrames {
     frames.append(f)
 }
 
-// 收尾：把最后 fadeN 帧交叉淡到第 0 帧，最末一帧就是第 0 帧本身
-let fadeN = max(2, Int(tailFade * fps))
-if frames.count > fadeN + 2 {
-    let target = frames[0]
-    let w = Int(pixelSize.width), h = Int(pixelSize.height)
-    for k in 0..<fadeN {
-        let j = frames.count - fadeN + k
-        let a = CGFloat(k + 1) / CGFloat(fadeN)     // 最后一帧 a = 1，完全等于第 0 帧
-        guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: w, pixelsHigh: h,
-                                         bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true,
-                                         isPlanar: false, colorSpaceName: .deviceRGB,
-                                         bytesPerRow: 0, bitsPerPixel: 0),
-              let ctx = NSGraphicsContext(bitmapImageRep: rep) else { continue }
-        rep.size = pixelSize
-        NSGraphicsContext.saveGraphicsState()
-        NSGraphicsContext.current = ctx
-        let r = CGRect(origin: .zero, size: pixelSize)
-        ctx.cgContext.draw(frames[j], in: r)
-        ctx.cgContext.setAlpha(a)
-        ctx.cgContext.draw(target, in: r)
-        NSGraphicsContext.restoreGraphicsState()
-        if let cg = rep.cgImage { frames[j] = cg }
+// 自检：末帧之后的那一帧应该与第 0 帧完全相同，这才叫接得上。
+// 顺便量一下空闲段相邻两帧的差，作为「一帧正常步进」的基准线
+if let seamRep = scene.petBitmap(scale: 1) {
+    let probe = Scene()
+    for _ in 0..<loopFrames { probe.step(dt) }
+    probe.step(dt)
+    if let firstRep = probe.petBitmap(scale: 1),
+       firstRep.pixelsWide == seamRep.pixelsWide,
+       firstRep.pixelsHigh == seamRep.pixelsHigh,
+       let a = firstRep.bitmapData, let b = seamRep.bitmapData {
+        let n = firstRep.bytesPerRow * firstRep.pixelsHigh
+        var sum = 0
+        for k in stride(from: 0, to: n, by: 4) {
+            sum += abs(Int(a[k]) - Int(b[k])) + abs(Int(a[k+1]) - Int(b[k+1]))
+                 + abs(Int(a[k+2]) - Int(b[k+2]))
+        }
+        let seam = Double(sum) / Double(n / 4 * 3)
+        probe.step(dt)
+        var base = Double.nan
+        if let c = probe.petBitmap(scale: 1)?.bitmapData {
+            var s2 = 0
+            for k in stride(from: 0, to: n, by: 4) {
+                s2 += abs(Int(a[k]) - Int(c[k])) + abs(Int(a[k+1]) - Int(c[k+1]))
+                    + abs(Int(a[k+2]) - Int(c[k+2]))
+            }
+            base = Double(s2) / Double(n / 4 * 3)
+        }
+        print(String(format: "  接缝 %.4f/255；相邻帧基准 %.4f/255（比值 %.2f×）",
+                     seam, base, seam / base))
     }
-    print(String(format: "  收尾 %d 帧交叉淡到第 0 帧；末帧与首帧完全相同", fadeN))
 }
 
 // MARK: - 输出
@@ -508,8 +507,8 @@ if isVideo {
         kCGImagePropertyGIFDictionary: [kCGImagePropertyGIFLoopCount: 0]
     ] as CFDictionary)
     let props = [kCGImagePropertyGIFDictionary: [
-        kCGImagePropertyGIFDelayTime: Double(dt),
-        kCGImagePropertyGIFUnclampedDelayTime: Double(dt),
+        kCGImagePropertyGIFDelayTime: gifDelay,
+        kCGImagePropertyGIFUnclampedDelayTime: gifDelay,
     ]] as CFDictionary
     for f in frames { CGImageDestinationAddImage(dest, f, props) }
     if !CGImageDestinationFinalize(dest) { fail("GIF 写入失败") }
