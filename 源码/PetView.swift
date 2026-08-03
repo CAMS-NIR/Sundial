@@ -80,6 +80,12 @@ final class PetView: NSView {
     private var bodyLean = NSPoint.zero              // 整只往鼠标方向偏一点
     private var eyeShift = NSPoint.zero              // 眼珠看向鼠标
     private var perk: CGFloat = 0                    // 0–1，被靠近时的「精神一振」
+    /// 0 = 清醒，1 = 打盹。原来 isSunAsleep 是个硬布尔，颜色 / 眼睛 / zzz / 光芒转角
+    /// 全在一帧里瞬切——会话一停，太阳「啪」地变灰。改成连续量，各处按它插值
+    private var sleepT: CGFloat = 1
+    /// 呼吸相位单独累积。醒着和睡着的呼吸频率不同，直接改 sin 的频率
+    /// 会在切换那一帧跳相，看着像抽了一下
+    private var breathPhase: CGFloat = 0
     /// 会话块的出现/消失进度。窗口高度必须用这个连续值算，不能直接数块数——
     /// 块数是离散的，最后一块一消失窗口会在一帧里掉 50pt，把所有缓动都吃掉。
     /// 正在淡出的块要留着自己的数据，不然没法继续画。
@@ -116,6 +122,8 @@ final class PetView: NSView {
 
     func advance(_ dt: CGFloat) {
         t += dt
+        sleepT = smoothStep(sleepT, toward: isSunAsleep ? 1 : 0, dt: dt, rate: 3.2)
+        breathPhase += dt * (1.6 - 0.6 * sleepT)
         // 转圈：归一化相位，wrap 时首尾严丝合缝
         if model.anyBusy {
             spinPhase += dt * 0.55
@@ -149,20 +157,20 @@ final class PetView: NSView {
         // 整只偏移 + 眼神跟随 + 精神一振：和光芒同一个「场」，一起缓动
         let field = reduceMotion ? nil : mouseField()
         let asleep = isSunAsleep
-        let leanSign: CGFloat = asleep ? -1 : 1        // 睡着时是躲，往反方向缩
-        let leanMax: CGFloat = asleep ? 3.0 : 4.2
+        // 醒着是凑过去（+4.2），睡着是躲开（-3.0）。按 sleepT 连续插值，
+        // 中间会经过 0——「先不躲也不凑，再慢慢反过来」，比正负瞬切自然
+        let leanMax: CGFloat = 4.2 * (1 - sleepT) - 3.0 * sleepT
         let lean = field.map {
-            NSPoint(x: $0.ux * leanMax * $0.proximity * leanSign,
-                    y: $0.uy * leanMax * $0.proximity * leanSign)
+            NSPoint(x: $0.ux * leanMax * $0.proximity,
+                    y: $0.uy * leanMax * $0.proximity)
         } ?? .zero
         // 有鼠标就看鼠标（比身体跟得更早也更满，离得还远就已经在看你了）；
         // 没人理它的时候，就时不时瞟一眼两侧的仪表盘
         let eye: NSPoint
-        if asleep {
-            eye = .zero
-        } else if let f = field {
-            eye = NSPoint(x: f.ux * 1.7 * min(1, f.proximity * 2.4),
-                          y: f.uy * 1.7 * min(1, f.proximity * 2.4))
+        if let f = field {
+            let k = 1.7 * (1 - sleepT)      // 睡着时眼珠不再跟人走
+            eye = NSPoint(x: f.ux * k * min(1, f.proximity * 2.4),
+                          y: f.uy * k * min(1, f.proximity * 2.4))
         } else {
             eye = .zero          // 没鼠标就正视前方，不再自己乱瞟
         }
@@ -170,7 +178,7 @@ final class PetView: NSView {
                            y: smoothStep(bodyLean.y, toward: lean.y, dt: dt, rate: 7))
         eyeShift = NSPoint(x: smoothStep(eyeShift.x, toward: eye.x, dt: dt, rate: 12),
                            y: smoothStep(eyeShift.y, toward: eye.y, dt: dt, rate: 12))
-        perk = smoothStep(perk, toward: (asleep || field == nil) ? 0 : field!.proximity,
+        perk = smoothStep(perk, toward: (field?.proximity ?? 0) * (1 - sleepT),
                           dt: dt, rate: 8)
         // 会话块的出现/消失：还在的**按 visible 的顺序重排**，走掉的插回原位淡出。
         // 之前是「按旧顺序遍历、新块一律 append」，于是 Activity 精心排的
@@ -260,8 +268,10 @@ final class PetView: NSView {
     }
 
     /// 第 i 根光芒的朝向，必须和 drawPet 里的算法完全一致，否则受力方向会错位
-    private func rayAngle(_ i: Int, asleep: Bool) -> CGFloat {
-        CGFloat(i) / CGFloat(PetView.rayCount) * 2 * .pi + .pi / 8 + (asleep ? 0 : sunSpin)
+    /// sunSpin 在不忙的时候本来就停止累积，这里无条件带上它即可。
+    /// 原来睡着时强行归零，等于让整圈光芒在一帧里转回原位
+    private func rayAngle(_ i: Int) -> CGFloat {
+        CGFloat(i) / CGFloat(PetView.rayCount) * 2 * .pi + .pi / 8 + sunSpin
     }
 
     private func wrapPi(_ a: CGFloat) -> CGFloat {
@@ -280,14 +290,14 @@ final class PetView: NSView {
 
         if let f = mouseField() {
             let mAngle = atan2(f.uy, f.ux)
-            let sign: CGFloat = asleep ? -1 : 1        // 睡着时反向：躲开鼠标
-            let maxPull: CGFloat = asleep ? 6 : PetView.rayMaxPull
+            let sign: CGFloat = 1 - 2 * sleepT         // 醒着凑过去，睡着躲开，中间连续过渡
+            let maxPull: CGFloat = PetView.rayMaxPull * (1 - sleepT) + 6 * sleepT
             // 背对的一侧反向变化。醒着时只是一点点缀；睡着时「躲」要看得出来——
             // 近的一侧缩回去的同时，远的一侧要明显探出去，才像整个身子被推开。
             // 原来这个系数是 0.28，远侧只长了不到两个点，肉眼根本看不出来
-            let recoilK: CGFloat = asleep ? 1.05 : 0.28
+            let recoilK: CGFloat = 0.28 * (1 - sleepT) + 1.05 * sleepT
             for i in 0..<PetView.rayCount {
-                let delta = wrapPi(rayAngle(i, asleep: asleep) - mAngle)
+                let delta = wrapPi(rayAngle(i) - mAngle)
                 // cos 归一到 0–1 后取幂。指数从 2.2 降到 1.4：光芒减到 9 根后，
                 // 太尖的衰减只有一根够得着，看不出「一片被拉过去」的感觉
                 let alignment = pow(max(0, cos(delta)), 1.4)
@@ -317,7 +327,7 @@ final class PetView: NSView {
             let rate = 0.9 + 1.1 * u
             let breath = 0.08 + 0.92 * sin(t * rate + (dirAngle == 0 ? .pi : 0))
             for i in 0..<PetView.rayCount {
-                let delta = wrapPi(rayAngle(i, asleep: asleep) - dirAngle)
+                let delta = wrapPi(rayAngle(i) - dirAngle)
                 out[i] += PetView.gaugeMaxPull * k * breath * pow(max(0, cos(delta)), 1.4)
             }
         }
@@ -632,10 +642,13 @@ final class PetView: NSView {
         let stress = CGFloat(model.maxPercent) / 100.0
         // 没有会话在跑就打盹：灰扑扑、闭眼、飘 zzz
         let asleep = isSunAsleep
-        let breathe = 1 + 0.022 * sin(t * (asleep ? 1.0 : 1.6))
+        let sT = sleepT                       // 0 = 清醒，1 = 打盹；以下全部按它插值
+        let breathe = 1 + 0.022 * sin(breathPhase)
 
-        let light = asleep ? NSColor.sleepLight : NSColor.coralLight
-        let deep = asleep ? NSColor.sleepDeep : NSColor.coralDeep
+        let light = NSColor.coralLight.blended(withFraction: sT, of: .sleepLight)
+            ?? NSColor.coralLight
+        let deep = NSColor.coralDeep.blended(withFraction: sT, of: .sleepDeep)
+            ?? NSColor.coralDeep
         // 身体随用量连续加深。原来是过了 75% 才突然变，等于只有两档；
         // 改成一路渐深，扫一眼颜色就知道大概用了多少，不用去读数字。
         // 取 1.5 次幂：用量低时几乎不变色，高位才明显压暗
@@ -643,11 +656,12 @@ final class PetView: NSView {
         // 原来这里把颜色全关掉，等于在最需要它的场合什么都读不到（实测：10% 和 99%
         // 渲染出来一模一样）。所以睡着照样压暗，只是幅度收一点、目标色换成暖深灰，
         // 让它仍然像在睡觉而不是生病
-        let tint = pow(max(0, min(1, stress)), 1.2) * (asleep ? 0.75 : 0.62)
+        let tint = pow(max(0, min(1, stress)), 1.2) * (0.62 + 0.13 * sT)
         // 上半只加深四成、下半加满：身体本来就是上浅下深的渐变，脸长在偏上的位置。
         // 全身一起压暗的话，深色红底配深褐五官，对比度会掉到 2.5:1（图形下限是 3:1），
         // 表情就糊了。这样既保住了「整体变深」的观感，脸也还看得清
-        let deepenTo: NSColor = asleep ? .sleepDeepen : .sunDeepen
+        let deepenTo: NSColor = NSColor.sunDeepen.blended(withFraction: sT, of: .sleepDeepen)
+            ?? .sunDeepen
         let bodyLight = light.blended(withFraction: tint * 0.4, of: deepenTo) ?? light
         let bodyDeep = deep.blended(withFraction: tint, of: deepenTo) ?? deep
         let grad = NSGradient(starting: bodyLight, ending: bodyDeep)
@@ -672,7 +686,7 @@ final class PetView: NSView {
                     // pair.0 == .pi 是朝左那一侧
                     let glow = pair.0 > 1 ? NSColor.glowLeft : NSColor.glowRight
                     // 睡着时把发光色往睡眠灰里收——还认得出是金还是粉，但不刺眼
-                    let c = asleep ? (glow.blended(withFraction: 0.25, of: .sleepDeep) ?? glow) : glow
+                    let c = glow.blended(withFraction: 0.25 * sT, of: .sleepDeep) ?? glow
                     // **发光强度跟着这一侧的用量走**：越满越亮。
                     // 这是空闲态唯一还能读出用量的通道——只剩一颗太阳时没有圈也没有数字，
                     // 而灰身体压暗那点差别在 88pt 见方里根本看不出来（实测 10% 和 99% 几乎一样）。
@@ -684,9 +698,8 @@ final class PetView: NSView {
         // 光芒：圆头短棒，思考时整圈缓慢转动；鼠标靠近时被「吸」得有长有短
         let rayCount = PetView.rayCount
         for i in 0..<rayCount {
-            let angle = CGFloat(i) / CGFloat(rayCount) * 2 * .pi + .pi / 8
-                + (asleep ? 0 : sunSpin)
-            let wobble = asleep ? 0 : 2.2 * s * sin(t * 1.9 + CGFloat(i) * 1.3)
+            let angle = CGFloat(i) / CGFloat(rayCount) * 2 * .pi + .pi / 8 + sunSpin
+            let wobble = (1 - sT) * 2.2 * s * sin(t * 1.9 + CGFloat(i) * 1.3)
             let inner: CGFloat = 21 * s
             // 反向排斥时不能把光芒缩没了，留个最短长度
             let outer = max(inner + 4 * s, (49 * s + wobble) * breathe + rayPull[i])
@@ -737,11 +750,23 @@ final class PetView: NSView {
         let lidClose = blinkT > 0 ? easeInOut(1 - abs(blinkT / 0.16 - 0.5) * 2) : 0
         NSColor.faceDark.setFill()
         NSColor.faceDark.setStroke()
+        // 眨眼和入睡合成同一个「闭合度」。入睡那 0.6 秒里眼睛是慢慢阖上的，
+        // 不是突然换成一条弧线：所以椭圆压扁与弧线淡入有一段重叠
+        let lid = max(lidClose, sT)
+        let arcAlpha = easeInOut(max(0, (lid - 0.62) / 0.38))
         for dx in [-12.0 * s, 12.0 * s] {
             // 眼珠看向鼠标；闭眼时不偏，免得弧线歪掉
-            let ex = cx + dx + (asleep ? 0 : eyeShift.x)
-            let eyeY = eyeY + (asleep ? 0 : eyeShift.y)
-            if asleep || lidClose > 0.75 {
+            let ex = cx + dx + eyeShift.x * (1 - sT)
+            let eyeY = eyeY + eyeShift.y * (1 - sT)
+            let h = 6 * s * (1 - lid)
+            if h > 0.2, arcAlpha < 1 {
+                // 纯豆豆眼，不点高光：这个尺寸下那点白只有 0.6pt，
+                // 不是高光而是一粒噪点，把干净的剪影搞脏了
+                NSColor.faceDark.withAlphaComponent(1 - arcAlpha).setFill()
+                NSBezierPath(ovalIn: NSRect(x: ex - 2.4 * s, y: eyeY - h / 2,
+                                            width: 4.8 * s, height: h)).fill()
+            }
+            if arcAlpha > 0.01 {
                 let p = NSBezierPath()
                 p.move(to: NSPoint(x: ex - 3 * s, y: eyeY))
                 p.curve(to: NSPoint(x: ex + 3 * s, y: eyeY),
@@ -749,20 +774,16 @@ final class PetView: NSView {
                         controlPoint2: NSPoint(x: ex + 1.5 * s, y: eyeY + 2.4 * s))
                 p.lineWidth = 1.6 * s
                 p.lineCapStyle = .round
+                NSColor.faceDark.withAlphaComponent(arcAlpha).setStroke()
                 p.stroke()
-            } else {
-                // 纯豆豆眼，不点高光：这个尺寸下那点白只有 0.6pt，
-                // 不是高光而是一粒噪点，把干净的剪影搞脏了。
-                // 眨眼是高度收缩，不是突然切换
-                let h = 6 * s * (1 - lidClose)
-                NSBezierPath(ovalIn: NSRect(x: ex - 2.4 * s, y: eyeY - h / 2,
-                                            width: 4.8 * s, height: h)).fill()
             }
         }
+        NSColor.faceDark.setFill()
+        NSColor.faceDark.setStroke()
 
         // 眉毛：只在开始紧张后才长出来，内高外低（「/ \」）＝担心的样子。
         // 这是三种心情里最一眼能认出来的差别
-        if !asleep, worry > 0.02 {
+        if worry * (1 - sT) > 0.02 {
             let lift = 2.4 * s * worry
             let browY = eyeY - 6.5 * s
             for dx in [-12.0 * s, 12.0 * s] {
@@ -774,7 +795,7 @@ final class PetView: NSView {
                 b.line(to: NSPoint(x: innerX, y: browY - lift))
                 b.lineWidth = 1.7 * s
                 b.lineCapStyle = .round
-                NSColor.faceDark.withAlphaComponent(worry).setStroke()
+                NSColor.faceDark.withAlphaComponent(worry * (1 - sT)).setStroke()
                 b.stroke()
             }
             NSColor.faceDark.setStroke()
@@ -783,12 +804,14 @@ final class PetView: NSView {
         // 嘴：开心是咧开的大弧，紧张是抿平，用满了是明显的倒弧
         let mouth = NSBezierPath()
         let my = cy + 6.5 * s
-        if asleep {
+        if sT > 0.01 {
             let o = NSBezierPath(ovalIn: NSRect(x: cx - 2 * s, y: my - 0.5 * s,
                                                 width: 4 * s, height: 5 * s))
             o.lineWidth = 1.4 * s
+            NSColor.faceDark.withAlphaComponent(sT).setStroke()
             o.stroke()
-        } else if stress < 0.5 {
+        }
+        if stress < 0.5 {
             // 控制点从 ±2.6 移到 ±4.8：靠得太近会把曲线拽成尖底的 V，
             // 往外挪才是圆润的 U。同时把深度收一点，配合变宽保持同样的开口
             let grin = 4.9 * s + 1.8 * s * perk
@@ -808,9 +831,11 @@ final class PetView: NSView {
         }
         mouth.lineWidth = 1.7 * s
         mouth.lineCapStyle = .round
+        NSColor.faceDark.withAlphaComponent(1 - sT).setStroke()
         mouth.stroke()
+        NSColor.faceDark.setStroke()
 
-        if asleep {
+        if sT > 0.01 {
             for i in 0..<3 {
                 let phase = fmod(t * 0.42 + CGFloat(i) * 0.33, 1.0)
                 let fade = easeInOut(phase < 0.5 ? phase * 2 : (1 - phase) * 2)
@@ -820,9 +845,9 @@ final class PetView: NSView {
                 let rect = NSRect(x: zx, y: zy, width: 20, height: size + 6)
                 let font = NSFont.systemFont(ofSize: size, weight: .bold)
                 drawText("z", in: rect.offsetBy(dx: 1, dy: 1), font: font,
-                         color: NSColor.faceDark.withAlphaComponent(fade * 0.55))
+                         color: NSColor.faceDark.withAlphaComponent(fade * 0.55 * sT))
                 drawText("z", in: rect, font: font,
-                         color: NSColor.labelColor.withAlphaComponent(fade * 0.8))
+                         color: NSColor.labelColor.withAlphaComponent(fade * 0.8 * sT))
             }
         }
     }

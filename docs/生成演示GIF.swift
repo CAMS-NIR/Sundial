@@ -25,7 +25,7 @@ import UniformTypeIdentifiers
 
 let outPath = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "demo.gif"
 let isVideo = outPath.lowercased().hasSuffix(".mp4") || outPath.lowercased().hasSuffix(".mov")
-let darkMode = CommandLine.arguments.contains("dark") || isVideo
+let darkMode = CommandLine.arguments.contains("dark")   // 视频默认白天模式
 
 // MARK: - 演示数据
 
