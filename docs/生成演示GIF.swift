@@ -29,18 +29,16 @@ let darkMode = CommandLine.arguments.contains("dark")   // 视频默认白天模
 
 // MARK: - 演示数据
 
-let model = PetModel()
-model.loading = false
-model.tier = "Max"
-model.lastFetch = Date()
-model.rows = [
-    UsageRow(label: "5 小时", percent: 70,
-             resetAt: Date().addingTimeInterval(66 * 60), priority: 0),
-    UsageRow(label: "每周 · 全部模型", percent: 43,
-             resetAt: Date().addingTimeInterval(3 * 86400), priority: 1),
-    UsageRow(label: "每周 · Fable", percent: 60,
-             resetAt: Date().addingTimeInterval(3 * 86400 - 10000), priority: 2),
-]
+func demoRows() -> [UsageRow] {
+    [
+        UsageRow(label: "5 小时", percent: 70,
+                 resetAt: Date().addingTimeInterval(66 * 60), priority: 0),
+        UsageRow(label: "每周 · 全部模型", percent: 43,
+                 resetAt: Date().addingTimeInterval(3 * 86400), priority: 1),
+        UsageRow(label: "每周 · Fable", percent: 60,
+                 resetAt: Date().addingTimeInterval(3 * 86400 - 10000), priority: 2),
+    ]
+}
 
 func demoSession(elapsed: TimeInterval) -> SessionActivity {
     SessionActivity(id: "demo", title: "示例会话", busy: true, waiting: false,
@@ -48,34 +46,81 @@ func demoSession(elapsed: TimeInterval) -> SessionActivity {
                     finishedAt: nil, ctxTokens: 393_000, ctxLimit: 1_000_000)
 }
 
-// MARK: - 视图
+// MARK: - 场景
 
 let winW: CGFloat = 198          // 与 AppDelegate.winW 一致
 let compact = PetView.compactSide
 
-let view = PetView(model: model)
-view.clipsToBounds = true        // 真机是窗口在裁；离屏没有窗口边界，必须自己裁
-let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: winW, height: 400),
-                      styleMask: [.borderless], backing: .buffered, defer: false)
-window.appearance = NSAppearance(named: darkMode ? .darkAqua : .aqua)
-window.contentView = view
+/// 一次完整的时间轴。要能重建——找无缝循环点时先低成本跑一遍，
+/// 定下长度后再从头正式渲染一遍，两遍必须走出完全一样的状态
+final class Scene {
+    let model = PetModel()
+    let view: PetView
+    private let window: NSWindow
+    private(set) var t: CGFloat = 0
+    private var nextBeat = 0
 
-/// 复刻 AppDelegate.expandedHeight()：那边是 private，这里必须跟着它改
-func expandedHeight() -> CGFloat {
-    var h: CGFloat = 10 + PetView.topRowH + 2
-    h += view.resetLineHeight
-    h += view.blocksHeight
-    let p = view.hoverProgress
-    if p > 0.001 {
-        h += (PetView.blockGap + 2 + 19 + CGFloat(min(model.rows.count, 5)) * 15 + 18) * p
+    init() {
+        model.loading = false
+        model.tier = "Max"
+        model.lastFetch = Date()
+        model.rows = demoRows()
+        view = PetView(model: model)
+        view.clipsToBounds = true   // 真机是窗口在裁；离屏没有窗口边界，必须自己裁
+        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: winW, height: 400),
+                          styleMask: [.borderless], backing: .buffered, defer: false)
+        window.appearance = NSAppearance(named: darkMode ? .darkAqua : .aqua)
+        window.contentView = view
     }
-    return h + 10
-}
 
-func desiredSize() -> NSSize {
-    let e = view.expandProgress
-    return NSSize(width: compact + (winW - compact) * e,
-                  height: compact + (expandedHeight() - compact) * e)
+    /// 复刻 AppDelegate.expandedHeight()：那边是 private，这里必须跟着它改
+    func expandedHeight() -> CGFloat {
+        var h: CGFloat = 10 + PetView.topRowH + 2
+        h += view.resetLineHeight
+        h += view.blocksHeight
+        if view.hoverProgress > 0.001 {
+            h += (PetView.blockGap + 2 + 19 + CGFloat(min(model.rows.count, 5)) * 15 + 18)
+                * view.hoverProgress
+        }
+        return h + 10
+    }
+
+    func desiredSize() -> NSSize {
+        let e = view.expandProgress
+        return NSSize(width: compact + (winW - compact) * e,
+                      height: compact + (expandedHeight() - compact) * e)
+    }
+
+    func step(_ dt: CGFloat) {
+        while nextBeat < beats.count, t >= beats[nextBeat].at {
+            beats[nextBeat].action(self); nextBeat += 1
+        }
+        view.mouseOverride = demoMouse(t)
+        view.advance(dt)
+        t += dt
+    }
+
+    /// 把桌宠单独画进位图。scale = 点到像素的倍数
+    func petBitmap(scale: CGFloat) -> NSBitmapImageRep? {
+        let size = desiredSize()
+        view.frame = NSRect(x: 0, y: 0, width: size.width, height: size.height)
+        view.needsDisplay = true
+        let pw = Int(ceil(size.width * scale)), ph = Int(ceil(size.height * scale))
+        guard pw > 0, ph > 0,
+              let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: pw, pixelsHigh: ph,
+                                         bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true,
+                                         isPlanar: false, colorSpaceName: .deviceRGB,
+                                         bytesPerRow: 0, bitsPerPixel: 0) else { return nil }
+        // 必须先设 size 再建上下文：上下文按「点尺寸 : 像素尺寸」定缩放，
+        // 顺序反了就成 1:1，视图会以一半比例画进画布左下角
+        rep.size = size
+        guard let ctx = NSGraphicsContext(bitmapImageRep: rep) else { return nil }
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = ctx
+        view.displayIgnoringOpacity(view.bounds, in: ctx)
+        NSGraphicsContext.restoreGraphicsState()
+        return rep
+    }
 }
 
 // MARK: - 时间轴
@@ -84,20 +129,24 @@ func desiredSize() -> NSSize {
 // 视频没有这个限制，直接给 60
 let fps: CGFloat = isVideo ? 60 : 25
 let dt = 1 / fps
-let duration: CGFloat = 12.0
+// 循环长度不写死，在这个区间里挑一个首末最接近的（见 findLoopLength）
+let minLoop: CGFloat = 12.0
+let maxLoop: CGFloat = 14.0
+/// 收尾交叉淡入的长度（秒）。见下方 findLoopLength 的说明
+let tailFade: CGFloat = 0.45
 
-struct Beat { let at: CGFloat; let action: () -> Void }
+struct Beat { let at: CGFloat; let action: (Scene) -> Void }
 let beats: [Beat] = [
-    Beat(at: 0.00) { model.hovered = false; model.sessions = [] },
-    Beat(at: 0.70) { model.hovered = true },                       // 鼠标移上来 → 展开
-    Beat(at: 1.60) { model.sessions = [demoSession(elapsed: 95)] },// 会话开始 → 块卷入
-    Beat(at: 9.50) {                                               // 跑完 → 未读
-        var s = demoSession(elapsed: 95)
-        s.busy = false; s.unread = true; s.finishedAt = Date()
-        model.sessions = [s]
+    Beat(at: 0.00) { $0.model.hovered = false; $0.model.sessions = [] },
+    Beat(at: 0.70) { $0.model.hovered = true },                       // 鼠标移上来 → 展开
+    Beat(at: 1.60) { $0.model.sessions = [demoSession(elapsed: 95)] },// 会话开始 → 块卷入
+    Beat(at: 9.50) { s in                                             // 跑完 → 未读
+        var x = demoSession(elapsed: 95)
+        x.busy = false; x.unread = true; x.finishedAt = Date()
+        s.model.sessions = [x]
     },
-    Beat(at: 10.35) { model.hovered = false },
-    Beat(at: 10.60) { model.sessions = [] },                       // 块卷走 → 收起
+    Beat(at: 10.35) { $0.model.hovered = false },
+    Beat(at: 10.60) { $0.model.sessions = [] },                       // 块卷走 → 收起
 ]
 
 // 鼠标引力段：光标从右下进场，贴着太阳绕过去，再从左下离场。
@@ -120,7 +169,7 @@ func demoMouse(_ t: CGFloat) -> NSPoint? {
 
 // 演示数据没到上限，「解封时间」那一行不会出现，画布不给它留位
 let maxH = 10 + PetView.topRowH + 2 + PetView.blockH
-    + (PetView.blockGap + 2 + 19 + CGFloat(min(model.rows.count, 5)) * 15 + 18) + 10
+    + (PetView.blockGap + 2 + 19 + CGFloat(demoRows().count) * 15 + 18) + 10
 
 /// 视频是竖屏 1080×1920；GIF 用贴着卡片的小画布，省体积
 let pixelSize = isVideo ? CGSize(width: 1080, height: 1920)
@@ -234,32 +283,11 @@ func drawCursor(at p: NSPoint, scale s: CGFloat) {
     path.fill()
 }
 
-func renderPet(_ size: NSSize, scale: CGFloat) -> NSImage? {
-    view.frame = NSRect(x: 0, y: 0, width: size.width, height: size.height)
-    view.needsDisplay = true
-    let pw = Int(ceil(size.width * scale)), ph = Int(ceil(size.height * scale))
-    guard pw > 0, ph > 0,
-          let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: pw, pixelsHigh: ph,
-                                     bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true,
-                                     isPlanar: false, colorSpaceName: .deviceRGB,
-                                     bytesPerRow: 0, bitsPerPixel: 0) else { return nil }
-    // 必须先设 size 再建上下文：上下文按「点尺寸 : 像素尺寸」定缩放，
-    // 顺序反了就成 1:1，视图会以一半比例画进画布左下角
-    rep.size = size
-    guard let ctx = NSGraphicsContext(bitmapImageRep: rep) else { return nil }
-    NSGraphicsContext.saveGraphicsState()
-    NSGraphicsContext.current = ctx
-    view.displayIgnoringOpacity(view.bounds, in: ctx)
-    NSGraphicsContext.restoreGraphicsState()
-    let img = NSImage(size: size)
-    img.addRepresentation(rep)
-    return img
-}
-
 /// 画一帧完整画面（背景 + 玻璃 + 桌宠 + 光标），返回像素图
-func renderFrame(_ t: CGFloat) -> CGImage? {
-    let size = desiredSize()
-    guard let petImg = renderPet(size, scale: cardPx) else { return nil }
+func renderFrame(_ sc: Scene) -> CGImage? {
+    let size = sc.desiredSize()
+    guard let petRep = sc.petBitmap(scale: cardPx) else { return nil }
+    let petImg = NSImage(size: size); petImg.addRepresentation(petRep)
 
     let w = Int(pixelSize.width), h = Int(pixelSize.height)
     guard let out = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: w, pixelsHigh: h,
@@ -279,14 +307,14 @@ func renderFrame(_ t: CGFloat) -> CGImage? {
                     : pixelSize.height - 22 * cardPx - ch
     let card = NSRect(x: x, y: y, width: cw, height: ch)
 
-    let e = view.expandProgress
+    let e = sc.view.expandProgress
     if e > 0.01 {                              // 完全收起时没有卡片，只剩太阳
         let r0 = min(cw, ch) / 2
         let rad = min(r0 + (PetView.cardRadius * cardPx - r0) * e, r0)
         drawGlass(in: card, radius: rad, alpha: ease(min(1, e / 0.45)), canvas: pixelSize)
     }
     petImg.draw(in: card)
-    if let m = view.mouseOverride {
+    if let m = sc.view.mouseOverride {
         // 视图坐标翻转（y 向下），画布不翻转，换算一下
         drawCursor(at: NSPoint(x: x + m.x * cardPx, y: y + ch - m.y * cardPx),
                    scale: cardPx * 0.62)
@@ -295,21 +323,119 @@ func renderFrame(_ t: CGFloat) -> CGImage? {
     return out.cgImage
 }
 
-// MARK: - 逐帧
+// MARK: - 找无缝循环点
 
-var frames: [CGImage] = []
-var t: CGFloat = 0
-var nextBeat = 0
-let total = Int(duration * fps)
-while frames.count < total {
-    while nextBeat < beats.count, t >= beats[nextBeat].at {
-        beats[nextBeat].action(); nextBeat += 1
+// 要能循环播放，最后一帧的下一帧必须与第一帧完全一致。对不上的有三样：
+// 光芒转角、zzz 相位、呼吸相位——都跟着绝对时间走，周期还互不相通
+// （zzz 是 1/0.42 秒，呼吸醒着 1.6 睡着 1.0 rad/s，中间还有过渡段）。
+// 与其去解这几个周期的最小公倍数，不如直接量：先用小尺寸跑一遍，
+// 把候选长度那几帧逐像素跟第 0 帧比，挑差异最小的。
+//
+// 但**光挑长度是接不上的**。实测接缝差 1.9/255，而空闲段相邻帧只差 0.13，
+// 差 15 倍；而且候选值在 ±5 帧内都是 1.9~2.1，说明有个调不掉的常数残差。
+// 把差异图打出来看，问题出在 zzz 和部分光芒的尖端——空闲时同时跑着四个
+// 互不通约的振荡：zzz 0.42 周/秒、呼吸 1.0 rad/s、左仪表拉扯 1.67、
+// 右仪表拉扯 1.56（后两个的频率跟着各自的用量走）。四个周期凑不到一起，
+// 没有任何时长能让它们同时回到原点。
+//
+// 所以最后一帧直接**取第 0 帧本身**，前面 tailFade 秒交叉淡过去。
+// 首末严格相同，接缝在两张一模一样的图之间，而淡入发生在光芒本来就在
+// 缓慢移动的时候，看不出来。挑长度这一步仍然保留——残差越小，淡入要吃的越少。
+//
+// 光芒转角那一项则是真的解掉了：它停下时冻在原地、之后不再变化，
+// 所以 PetView 那边加了「停下归到最近的 40° 卡点」，让空闲姿态唯一确定
+func findLoopLength() -> (frames: Int, diff: Double) {
+    let probe = Scene()
+    let maxN = Int(maxLoop * fps), minN = Int(minLoop * fps)
+    var first: NSBitmapImageRep?
+    var best = (n: minN, d: Double.infinity)
+    var all: [(Int, Double)] = []
+    for i in 0...maxN {
+        probe.step(dt)
+        guard let rep = probe.petBitmap(scale: 1) else { continue }
+        if i == 0 { first = rep; continue }
+        guard i >= minN, let f = first,
+              rep.pixelsWide == f.pixelsWide, rep.pixelsHigh == f.pixelsHigh,
+              let a = f.bitmapData, let b = rep.bitmapData else { continue }
+        let n = f.bytesPerRow * f.pixelsHigh
+        var sum = 0
+        for k in stride(from: 0, to: n, by: 4) {   // 只比 alpha 之外的三个通道
+            sum += abs(Int(a[k]) - Int(b[k])) + abs(Int(a[k+1]) - Int(b[k+1]))
+                 + abs(Int(a[k+2]) - Int(b[k+2]))
+        }
+        let d = Double(sum) / Double(n / 4 * 3)
+        all.append((i, d))
+        if d < best.d { best = (i, d) }
     }
-    view.mouseOverride = demoMouse(t)
-    view.advance(dt)
-    guard let f = renderFrame(t) else { break }
+    // 光有绝对差值说明不了问题——得跟「相邻两帧的正常差异」比。
+    // 接缝处的差异不大于普通一帧的步进，才算真的接得上
+    if ProcessInfo.processInfo.environment["LOOPDEBUG"] != nil {
+        let sorted = all.sorted { $0.1 < $1.1 }.prefix(6)
+        for (i, d) in sorted {
+            print(String(format: "    候选 %d 帧 = %.2f 秒   差 %.3f", i, Double(i) / Double(fps), d))
+        }
+    }
+    return (best.n, best.d)
+}
+
+/// 空闲段里相邻两帧的平均像素差，作为「接得上」的基准线
+func adjacentBaseline() -> Double {
+    let probe = Scene()
+    let n = Int(minLoop * fps)
+    for _ in 0..<n { probe.step(dt) }
+    guard let a = probe.petBitmap(scale: 1)?.bitmapData else { return .nan }
+    let bytes = 88 * 4 * 88
+    var prev = [UInt8](repeating: 0, count: bytes)
+    memcpy(&prev, a, bytes)
+    probe.step(dt)
+    guard let b = probe.petBitmap(scale: 1)?.bitmapData else { return .nan }
+    var sum = 0
+    for k in stride(from: 0, to: bytes, by: 4) {
+        sum += abs(Int(prev[k]) - Int(b[k])) + abs(Int(prev[k+1]) - Int(b[k+1]))
+             + abs(Int(prev[k+2]) - Int(b[k+2]))
+    }
+    return Double(sum) / Double(bytes / 4 * 3)
+}
+
+let (loopFrames, loopDiff) = findLoopLength()
+let baseline = adjacentBaseline()
+print(String(format: "  无缝点：%d 帧（%.2f 秒），接缝差 %.3f/255；空闲段相邻帧差 %.3f/255",
+             loopFrames, Double(loopFrames) / Double(fps), loopDiff, baseline))
+
+// MARK: - 正式渲染
+
+let scene = Scene()
+var frames: [CGImage] = []
+while frames.count < loopFrames {
+    scene.step(dt)
+    guard let f = renderFrame(scene) else { break }
     frames.append(f)
-    t += dt
+}
+
+// 收尾：把最后 fadeN 帧交叉淡到第 0 帧，最末一帧就是第 0 帧本身
+let fadeN = max(2, Int(tailFade * fps))
+if frames.count > fadeN + 2 {
+    let target = frames[0]
+    let w = Int(pixelSize.width), h = Int(pixelSize.height)
+    for k in 0..<fadeN {
+        let j = frames.count - fadeN + k
+        let a = CGFloat(k + 1) / CGFloat(fadeN)     // 最后一帧 a = 1，完全等于第 0 帧
+        guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: w, pixelsHigh: h,
+                                         bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true,
+                                         isPlanar: false, colorSpaceName: .deviceRGB,
+                                         bytesPerRow: 0, bitsPerPixel: 0),
+              let ctx = NSGraphicsContext(bitmapImageRep: rep) else { continue }
+        rep.size = pixelSize
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = ctx
+        let r = CGRect(origin: .zero, size: pixelSize)
+        ctx.cgContext.draw(frames[j], in: r)
+        ctx.cgContext.setAlpha(a)
+        ctx.cgContext.draw(target, in: r)
+        NSGraphicsContext.restoreGraphicsState()
+        if let cg = rep.cgImage { frames[j] = cg }
+    }
+    print(String(format: "  收尾 %d 帧交叉淡到第 0 帧；末帧与首帧完全相同", fadeN))
 }
 
 // MARK: - 输出

@@ -158,6 +158,15 @@ final class PetView: NSView {
         if model.anyBusy && !model.asleep {
             sunSpin += dt * 0.9
             while sunSpin > .pi * 2 { sunSpin -= .pi * 2 }
+        } else if sunSpin != 0 {
+            // 停下时归到最近的一个「卡点」。光芒是 9 次对称，转到 40° 的任意
+            // 整数倍看起来都一样，所以这一步是看不见的——但空闲时的姿态从此
+            // 唯一确定，而不是「上次转到哪就停哪」。菜单栏那只本来就是停下
+            // 回正（statusSpin = 0），两边现在一致了
+            let step = CGFloat.pi * 2 / CGFloat(PetView.rayCount)
+            let target = (sunSpin / step).rounded() * step
+            sunSpin = smoothStep(sunSpin, toward: target, dt: dt, rate: 4)
+            if abs(sunSpin - target) < 0.0005 { sunSpin = target }
         }
         // 圆环数值缓动跟随。**按位置记，不按标签记**——右圈显示的是「最紧的那条周限额」，
         // 哪条最紧是会换人的（比如 Fable 被「全部模型」反超）。按标签记的话，换人时
