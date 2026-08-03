@@ -147,7 +147,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             fallbackEffectView = ve
         }
 
-        setUpStatusItem()
+        applyStatusIcon()
         restorePosition()
         window.orderFrontRegardless()
 
@@ -236,6 +236,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         } else {
             // 用视图里那个连续变化的高度，不能直接数块数：块数是离散的，
             // 最后一块一消失窗口会在一帧里掉 50pt，缓动全白做
+            h += petView?.resetLineHeight ?? 0
             h += petView?.blocksHeight ?? 0
             // 详情区高度按展开进度连续插值，窗口才能平滑伸缩
             let p = petView?.hoverProgress ?? 0
@@ -470,6 +471,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     /// 菜单栏图标：没有 Dock 图标时，这是唯一稳定的入口——
     /// 窗口被拖到已拔掉的显示器、或用户忘了那只太阳是什么，都能从这里找回来。
+    static var showStatusIcon: Bool {
+        // 默认开：这是窗口找不到时唯一的退路，不该让人一装上就没有入口
+        get { UserDefaults.standard.object(forKey: "PetShowStatusIcon") as? Bool ?? true }
+        set { UserDefaults.standard.set(newValue, forKey: "PetShowStatusIcon") }
+    }
+
+    @objc func toggleStatusIcon() {
+        Self.showStatusIcon.toggle()
+        // 下一轮再动：这一项可能就是从状态栏自己的菜单点的，
+        // 在菜单还没收完的时候把宿主 statusItem 拆掉不稳妥
+        DispatchQueue.main.async { [weak self] in self?.applyStatusIcon() }
+    }
+
+    /// 建立或撤掉菜单栏图标。撤掉时连计时器一起停——留着的话每 1/12 秒
+    /// 还在算旋转角、还在重画图标，只是没人看得到
+    private func applyStatusIcon() {
+        if Self.showStatusIcon {
+            if statusItem == nil { setUpStatusItem() }
+        } else if let item = statusItem {
+            statusTimer?.invalidate()
+            statusTimer = nil
+            NSStatusBar.system.removeStatusItem(item)
+            statusItem = nil
+            statusSpin = 0
+        }
+    }
+
     private func setUpStatusItem() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         item.button?.image = statusSunImage(spin: 0, asleep: true)
@@ -547,6 +575,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                              keyEquivalent: "")
         top.state = Self.abovePopups ? .on : .off
         menu.addItem(top)
+        let sb = NSMenuItem(title: "显示菜单栏图标", action: #selector(toggleStatusIcon),
+                            keyEquivalent: "")
+        sb.state = Self.showStatusIcon ? .on : .off
+        menu.addItem(sb)
         let auto = NSMenuItem(title: "登录时自动启动", action: #selector(toggleAutostart),
                               keyEquivalent: "")
         auto.state = autostartEnabled ? .on : .off

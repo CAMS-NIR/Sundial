@@ -65,6 +65,28 @@ final class PetView: NSView {
         return false
     }
 
+    /// 用满了的那条限额什么时候解封。**只有真的到上限（太阳变 ✖）才画这一行**——
+    /// 没满的时候「还有多久重置」是句废话，占一行还把卡片撑高；
+    /// 满了之后它反过来是唯一还想知道的事。
+    /// 多条同时超限就取最早解封的那条。nil = 没满，这一行不画
+    func soonestResetText() -> String? {
+        let now = Date()
+        let next = model.rows
+            .filter { $0.percent >= 100 }
+            .compactMap { r -> (Date, String)? in
+                guard let d = r.resetAt, d > now else { return nil }
+                return (d, r.label)
+            }
+            .min { $0.0 < $1.0 }
+        guard let (date, label) = next else { return nil }
+        // 「每周 · 全部模型」这种长标签只取第一段，198pt 宽放不下整条
+        let short = label.components(separatedBy: " · ").first ?? label
+        return "\(short) · \(compactReset(date)) 后解封"
+    }
+
+    /// 供 AppDelegate.expandedHeight() 用：这一行占不占地方
+    var resetLineHeight: CGFloat { soonestResetText() == nil ? 0 : PetView.resetLineH }
+
     private var expandTargetValue: CGFloat {
         // 用 blocks 而不是 visibleSessions：块还在淡出时窗口不能先收，
         // 否则两段动画叠在一起，看起来仍然是「啪」一下
@@ -83,6 +105,8 @@ final class PetView: NSView {
     /// 0 = 清醒，1 = 打盹。原来 isSunAsleep 是个硬布尔，颜色 / 眼睛 / zzz / 光芒转角
     /// 全在一帧里瞬切——会话一停，太阳「啪」地变灰。改成连续量，各处按它插值
     private var sleepT: CGFloat = 1
+    /// 0 = 没满，1 = 到上限。到上限时眼睛变 ✖，一眼看出「这条已经用完了」
+    private var deadT: CGFloat = 0
     /// 呼吸相位单独累积。醒着和睡着的呼吸频率不同，直接改 sin 的频率
     /// 会在切换那一帧跳相，看着像抽了一下
     private var breathPhase: CGFloat = 0
@@ -105,6 +129,7 @@ final class PetView: NSView {
     static let petScale: CGFloat = 0.44
     static let cardRadius: CGFloat = 26     // 与 AppDelegate.expandedRadius 一致
     static let compactSide: CGFloat = 88  // 收起时的窗口边长（只剩太阳）
+    static let resetLineH: CGFloat = 15   // 「最近重置」那一行的高度
     static let rayCount = 9               // 奇数根，转起来更自然
     static let rayMaxPull: CGFloat = 13   // 正对鼠标且贴近时的最大伸长（pt）
     static let gaugeMaxPull: CGFloat = 9.5 // 仪表满格时朝它那侧的最大伸长（pt）
@@ -123,6 +148,7 @@ final class PetView: NSView {
     func advance(_ dt: CGFloat) {
         t += dt
         sleepT = smoothStep(sleepT, toward: isSunAsleep ? 1 : 0, dt: dt, rate: 3.2)
+        deadT = smoothStep(deadT, toward: model.maxPercent >= 100 ? 1 : 0, dt: dt, rate: 3.0)
         breathPhase += dt * (1.6 - 0.6 * sleepT)
         // 转圈：归一化相位，wrap 时首尾严丝合缝
         if model.anyBusy {
@@ -156,7 +182,6 @@ final class PetView: NSView {
         }
         // 整只偏移 + 眼神跟随 + 精神一振：和光芒同一个「场」，一起缓动
         let field = reduceMotion ? nil : mouseField()
-        let asleep = isSunAsleep
         // 醒着是凑过去（+4.2），睡着是躲开（-3.0）。按 sleepT 连续插值，
         // 中间会经过 0——「先不躲也不凑，再慢慢反过来」，比正负瞬切自然
         let leanMax: CGFloat = 4.2 * (1 - sleepT) - 3.0 * sleepT
@@ -226,7 +251,7 @@ final class PetView: NSView {
         if changed || blocksChanged { onHoverProgress?() }
         // 眨眼。之前连同「瞟仪表」一起删过，但那两件事不一样：
         // 瞟仪表是眼珠周期性左右移动（看着像在闪），眨眼只是一次高度收缩，不抢眼
-        if t >= nextBlinkAt {
+        if t >= nextBlinkAt, deadT < 0.5 {      // ✖ 眼不眨
             blinkUntil = t + 0.16
             nextBlinkAt = t + CGFloat.random(in: 2.4...6.0)
         }
@@ -286,7 +311,6 @@ final class PetView: NSView {
     ///  ② 两侧的仪表盘——用得越满，朝那一侧的光芒被拽得越长
     private func rayPullTargets() -> [CGFloat] {
         var out = [CGFloat](repeating: 0, count: PetView.rayCount)
-        let asleep = isSunAsleep
 
         if let f = mouseField() {
             let mAngle = atan2(f.uy, f.ux)
@@ -564,6 +588,14 @@ final class PetView: NSView {
 
         var y = card.minY + 10 + PetView.topRowH + 2
 
+        if let soon = soonestResetText() {
+            drawText(soon, in: NSRect(x: card.minX + 10, y: y,
+                                      width: card.width - 20, height: 13),
+                     font: .systemFont(ofSize: 10), color: .secondaryLabelColor,
+                     align: .center)
+            y += PetView.resetLineH
+        }
+
         if model.loading {
             drawText("正在获取用量…", in: NSRect(x: card.minX, y: y + 6,
                                             width: card.width, height: 16),
@@ -641,7 +673,6 @@ final class PetView: NSView {
         let cx0 = center.x, cy0 = center.y
         let stress = CGFloat(model.maxPercent) / 100.0
         // 没有会话在跑就打盹：灰扑扑、闭眼、飘 zzz
-        let asleep = isSunAsleep
         let sT = sleepT                       // 0 = 清醒，1 = 打盹；以下全部按它插值
         let breathe = 1 + 0.022 * sin(breathPhase)
 
@@ -759,14 +790,15 @@ final class PetView: NSView {
             let ex = cx + dx + eyeShift.x * (1 - sT)
             let eyeY = eyeY + eyeShift.y * (1 - sT)
             let h = 6 * s * (1 - lid)
-            if h > 0.2, arcAlpha < 1 {
+            let dT = deadT                      // 到上限时活着的那套眼睛整体让位给 ✖
+            if h > 0.2, arcAlpha < 1, dT < 1 {
                 // 纯豆豆眼，不点高光：这个尺寸下那点白只有 0.6pt，
                 // 不是高光而是一粒噪点，把干净的剪影搞脏了
-                NSColor.faceDark.withAlphaComponent(1 - arcAlpha).setFill()
+                NSColor.faceDark.withAlphaComponent((1 - arcAlpha) * (1 - dT)).setFill()
                 NSBezierPath(ovalIn: NSRect(x: ex - 2.4 * s, y: eyeY - h / 2,
                                             width: 4.8 * s, height: h)).fill()
             }
-            if arcAlpha > 0.01 {
+            if arcAlpha > 0.01, dT < 1 {
                 let p = NSBezierPath()
                 p.move(to: NSPoint(x: ex - 3 * s, y: eyeY))
                 p.curve(to: NSPoint(x: ex + 3 * s, y: eyeY),
@@ -774,8 +806,22 @@ final class PetView: NSView {
                         controlPoint2: NSPoint(x: ex + 1.5 * s, y: eyeY + 2.4 * s))
                 p.lineWidth = 1.6 * s
                 p.lineCapStyle = .round
-                NSColor.faceDark.withAlphaComponent(arcAlpha).setStroke()
+                NSColor.faceDark.withAlphaComponent(arcAlpha * (1 - dT)).setStroke()
                 p.stroke()
+            }
+            // 用满了：眼睛变 ✖。压在睡眠态之上——没有会话在跑的时候，
+            // 「已经用完了」比「在打盹」是更该先读到的一件事
+            if dT > 0.01 {
+                let r = 3.2 * s
+                let x = NSBezierPath()
+                x.move(to: NSPoint(x: ex - r, y: eyeY - r))
+                x.line(to: NSPoint(x: ex + r, y: eyeY + r))
+                x.move(to: NSPoint(x: ex - r, y: eyeY + r))
+                x.line(to: NSPoint(x: ex + r, y: eyeY - r))
+                x.lineWidth = 1.9 * s
+                x.lineCapStyle = .round
+                NSColor.faceDark.withAlphaComponent(dT).setStroke()
+                x.stroke()
             }
         }
         NSColor.faceDark.setFill()

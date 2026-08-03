@@ -63,6 +63,7 @@ window.contentView = view
 /// 复刻 AppDelegate.expandedHeight()：那边是 private，这里必须跟着它改
 func expandedHeight() -> CGFloat {
     var h: CGFloat = 10 + PetView.topRowH + 2
+    h += view.resetLineHeight
     h += view.blocksHeight
     let p = view.hoverProgress
     if p > 0.001 {
@@ -117,6 +118,7 @@ func demoMouse(_ t: CGFloat) -> NSPoint? {
 
 // MARK: - 画布
 
+// 演示数据没到上限，「解封时间」那一行不会出现，画布不给它留位
 let maxH = 10 + PetView.topRowH + 2 + PetView.blockH
     + (PetView.blockGap + 2 + 19 + CGFloat(min(model.rows.count, 5)) * 15 + 18) + 10
 
@@ -124,7 +126,7 @@ let maxH = 10 + PetView.topRowH + 2 + PetView.blockH
 let pixelSize = isVideo ? CGSize(width: 1080, height: 1920)
                         : CGSize(width: (winW + 44) * 2.5, height: (maxH + 44) * 2.5)
 /// 卡片在画布上的放大倍数（点 → 像素）
-let cardPx: CGFloat = isVideo ? 4.3 : 2.5
+let cardPx: CGFloat = isVideo ? 4.8 : 2.5   // 视频里卡片贴满宽度，观感与 GIF 一致
 
 // MARK: - 背景（让玻璃有东西可透）
 
