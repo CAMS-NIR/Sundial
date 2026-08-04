@@ -1,21 +1,23 @@
-// 离屏渲染演示素材：README 用的 GIF，以及发社媒用的竖屏视频。
-// 不录屏——逐帧驱动 PetView.advance()，时间轴完全可控，重跑结果一致。
+// Off-screen rendering of the demo assets: the GIF used in the README, plus the portrait video for social media.
+// No screen recording — this drives PetView.advance() frame by frame, so the timeline is completely under control
+// and re-running it gives the same result.
 //
-// 文件名必须是 main.swift 才允许顶层语句，所以先复制一份：
+// Top-level statements are only allowed in a file called main.swift, so copy it somewhere first:
 //
 //   cp docs/make-demo.swift /tmp/main.swift && cd /tmp
-//   swiftc -O main.swift <仓库>/src/{PetView,Theme,Model,Activity,Usage,Auth}.swift -o gifgen
-//   ./gifgen demo.gif             # 浅色 GIF
-//   ./gifgen demo-dark.gif dark   # 深色 GIF
-//   ./gifgen 竖屏.mp4              # 竖屏视频（1080×1920，60fps）
+//   swiftc -O main.swift <repo>/src/{PetView,Theme,Model,Activity,Usage,Auth}.swift -o gifgen
+//   ./gifgen demo.gif             # light GIF
+//   ./gifgen demo-dark.gif dark   # dark GIF
+//   ./gifgen 竖屏.mp4              # portrait video (1080×1920, 60fps)
 //
-// 输出为 .mp4 时自动切成竖屏视频：GIF 撑不住「又大又长又高刷」——
-// 三者都直接乘文件体积；H.264 没这个问题，完整时长和高帧率放在视频里。
+// When the output is a .mp4 it switches to a portrait video automatically: a GIF cannot carry "big and long and
+// high refresh rate" all at once — each of the three multiplies the file size directly; H.264 does not have that
+// problem, so the full duration and the high frame rate go into the video.
 //
-// 卡片的边缘映光由 PetView.drawCardEdge() 画，App 本体也有。
-// 这里额外补的是玻璃本身：真机上是 NSGlassEffectView 把背后的桌面糊掉，
-// 离屏没有那一层，得自己铺一张背景再把卡片区域做高斯模糊，
-// 否则「玻璃」和一块不透明卡片长得一模一样，质感完全看不出来。
+// The card's edge light is drawn by PetView.drawCardEdge(); the app itself has it too.
+// What is added here on top is the glass itself: on a real machine NSGlassEffectView blurs out the desktop behind it,
+// off-screen there is no such layer, so we have to lay down a background ourselves and then Gaussian-blur the card area,
+// otherwise the "glass" looks exactly like an opaque card and you cannot see the material at all.
 
 import AppKit
 import AVFoundation
@@ -25,21 +27,26 @@ import UniformTypeIdentifiers
 
 let outPath = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "demo.gif"
 let isVideo = outPath.lowercased().hasSuffix(".mp4") || outPath.lowercased().hasSuffix(".mov")
-let darkMode = CommandLine.arguments.contains("dark")   // 视频默认白天模式
-/// 「躲」模式：全程没有会话，太阳一直睡着，光标凑近时它把光芒缩回去、身子往后躲。
-/// 与默认那条时间轴的区别不只是内容——全程睡着意味着呼吸速率恒为 1.0 rad/s，
-/// 「醒着多久」这个调节旋钮没有了，闭环只能靠搜近似复现点（见 findLoopLength）
+let darkMode = CommandLine.arguments.contains("dark")   // videos default to light mode
+/// "Dodge" mode: no session at all from start to finish, the sun stays asleep, and when the cursor comes close it
+/// pulls its rays back in and leans away.
+/// The difference from the default timeline is not only the content — being asleep the whole way through means the
+/// breathing rate is a constant 1.0 rad/s, so the "how long it stays awake" adjustment knob is gone and the only way
+/// to close the loop is to search for an approximate recurrence point (see findLoopLength)
 let dodge = CommandLine.arguments.contains("dodge")
 
-// MARK: - 演示数据
+// MARK: - Demo data
 
-/// **这三个百分比不能随便改**：仪表拉扯的角频率是 rate = 0.9 + 0.011×用量%，
-/// 要让它在一个循环里正好转整数圈，用量% 是被 loopT 反解出来的。
-/// 在 5–99 里只有 21% 近乎精确（相位残差 0.00044 rad ＝ 正常一帧移动量的 2%），
-/// 次好的 55% 是 0.049 rad ≈ 两帧。实测接缝：两个圈都用 21% 是 1.17×基准，
-/// 换成 21/55 就掉到 2.07×——所以两个圈都取 21%。
-/// 代价是演示里的太阳是放松表情、圆环也偏空，这是闭环换来的。
-/// 「每周 · 全部模型」不上圆环、不参与拉扯，只要小于 Fable 即可随意。
+/// **These three percentages must not be changed casually**: the angular frequency of the gauge tug is
+/// rate = 0.9 + 0.011×usage%, and for it to turn a whole number of revolutions within one loop, the usage% is
+/// solved backwards out of loopT.
+/// Across 5–99 only 21% is near-exact (phase residual 0.00044 rad = 2% of how far a normal frame moves),
+/// and the next best, 55%, is 0.049 rad ≈ two frames. Seam as measured: 21% on both rings gives 1.17× the baseline,
+/// switching to 21/55 drops it to 2.07× — so both rings take 21%.
+/// The price is that the sun in the demo wears its relaxed expression and the rings look rather empty; that is what
+/// closing the loop cost.
+/// The "weekly · all models" row gets no ring and takes no part in the tug, so it can be anything at all as long as
+/// it is smaller than Fable.
 func demoRows() -> [UsageRow] {
     [
         UsageRow(label: "5 小时", percent: 21,
@@ -57,13 +64,14 @@ func demoSession(elapsed: TimeInterval) -> SessionActivity {
                     finishedAt: nil, ctxTokens: 393_000, ctxLimit: 1_000_000)
 }
 
-// MARK: - 场景
+// MARK: - Scene
 
-let winW: CGFloat = 198          // 与 AppDelegate.winW 一致
+let winW: CGFloat = 198          // matches AppDelegate.winW
 let compact = PetView.compactSide
 
-/// 一次完整的时间轴。要能重建——找无缝循环点时先低成本跑一遍，
-/// 定下长度后再从头正式渲染一遍，两遍必须走出完全一样的状态
+/// One complete timeline. It has to be reproducible — when hunting for the seamless loop point we run it once
+/// cheaply, then, with the length settled, render it properly from the start again; both passes must walk through
+/// exactly the same states
 final class Scene {
     let model = PetModel()
     let view: PetView
@@ -78,14 +86,14 @@ final class Scene {
         model.lastFetch = Date()
         model.rows = demoRows()
         view = PetView(model: model)
-        view.clipsToBounds = true   // 真机是窗口在裁；离屏没有窗口边界，必须自己裁
+        view.clipsToBounds = true   // on a real machine the window clips; off-screen there is no window edge, so clip ourselves
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: winW, height: 400),
                           styleMask: [.borderless], backing: .buffered, defer: false)
         window.appearance = NSAppearance(named: darkMode ? .darkAqua : .aqua)
         window.contentView = view
     }
 
-    /// 复刻 AppDelegate.expandedHeight()：那边是 private，这里必须跟着它改
+    /// A replica of AppDelegate.expandedHeight(): that one is private, so this one has to be changed alongside it
     func expandedHeight() -> CGFloat {
         var h: CGFloat = 10 + PetView.topRowH + 2
         h += view.resetLineHeight
@@ -113,20 +121,24 @@ final class Scene {
         retimeToAnimationClock()
     }
 
-    /// 把所有「按真实时钟算的显示时间」重新锚到动画时钟上。
+    /// Re-anchor every "displayed time worked out from the real clock" onto the animation clock.
     ///
-    /// 界面上「已跑 1 分 35 秒」「刚刚更新」这些字，是用 Date() 减去 since /
-    /// lastFetch 算出来的。渲染一条片子要几十秒真实时间，于是同一个动画时刻
-    /// 在两次渲染里落在不同的真实时间上，秒数就会差一格——两次渲染不可复现，
-    /// **白天版和夜间版也会在同一时刻显示不同的字**。
-    /// 剪辑时如果在这种地方卡拍点切换明暗，那行字就会跳。
-    /// 每帧重新锚定之后，显示时间只跟动画时钟走，与渲染耗时无关
+    /// The words on screen — "running for 1 min 35 s", "just updated" — are worked out by subtracting since /
+    /// lastFetch from Date(). Rendering one clip takes tens of seconds of real time, so the same animation moment
+    /// lands on a different real time in two different renders and the seconds reading ends up one notch apart —
+    /// the two renders are not reproducible, and **the light version and the dark version will also show different
+    /// words at the same moment**.
+    /// If, while editing, you cut between light and dark on a beat at a spot like that, that line of text jumps.
+    /// Once it is re-anchored every frame, the displayed time follows only the animation clock and has nothing to
+    /// do with how long rendering takes
     private func retimeToAnimationClock() {
         let now = Date()
         model.lastFetch = now
-        // 落到「整秒 + 0.5」而不是精确值：界面是在绘制那一刻才用 Date() 去减，
-        // 而这里重新锚定与实际绘制之间隔着渲染耗时（几十毫秒且不稳定）。
-        // 锚在整秒中点，就有半秒容差，抖动不会把数值推过整秒边界
+        // Land on "whole second + 0.5" rather than on the exact value: the interface only subtracts with Date() at
+        // the moment it draws, and between re-anchoring here and the actual drawing sits the rendering cost (tens of
+        // milliseconds, and not steady).
+        // Anchored at the midpoint of a whole second there is half a second of slack, so the jitter cannot push the
+        // value across a whole-second boundary
         func mid(_ v: Double) -> Double { max(0, v).rounded(.down) + 0.5 }
         for i in model.sessions.indices {
             if model.sessions[i].busy {
@@ -139,7 +151,7 @@ final class Scene {
         }
     }
 
-    /// 把桌宠单独画进位图。scale = 点到像素的倍数
+    /// Draw the pet on its own into a bitmap. scale = the points-to-pixels multiplier
     func petBitmap(scale: CGFloat) -> NSBitmapImageRep? {
         let size = desiredSize()
         view.frame = NSRect(x: 0, y: 0, width: size.width, height: size.height)
@@ -150,8 +162,9 @@ final class Scene {
                                          bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true,
                                          isPlanar: false, colorSpaceName: .deviceRGB,
                                          bytesPerRow: 0, bitsPerPixel: 0) else { return nil }
-        // 必须先设 size 再建上下文：上下文按「点尺寸 : 像素尺寸」定缩放，
-        // 顺序反了就成 1:1，视图会以一半比例画进画布左下角
+        // size must be set before the context is created: the context works its scale out from "point size : pixel
+        // size", and with the order the wrong way round it comes out 1:1, so the view draws itself at half scale into
+        // the bottom-left corner of the canvas
         rep.size = size
         guard let ctx = NSGraphicsContext(bitmapImageRep: rep) else { return nil }
         NSGraphicsContext.saveGraphicsState()
@@ -162,72 +175,82 @@ final class Scene {
     }
 }
 
-// MARK: - 时间轴
+// MARK: - Timeline
 
-// 要能首尾相接地循环播放，收尾时每一项动画都必须回到开头那一刻的状态。
-// 空闲时同时跑着四项，各自的周期互不相通：
-//   ① 光芒转角 sunSpin —— 停下时冻在原地。这项在 PetView 里解掉了
-//      （停下归到最近的 40° 卡点，9 次对称所以看不出来，但姿态唯一确定）
-//   ② zzz 飘动 —— fmod(t·0.42, 1)，周期 1/0.42 秒，跟绝对时间走
-//   ③ 两侧仪表拉扯 —— sin(t·rate)，rate = 0.9 + 0.011×用量%，也跟绝对时间走
-//   ④ 身体呼吸 —— 累积相位，醒着 1.6 睡着 1.0 rad/s，跟时间轴的编排有关
+// For the playback to loop end to end, every single animation must be back in its opening-moment state when the
+// loop finishes. While idle there are four of them running at once, and their periods have nothing to do with
+// one another:
+//   ① ray rotation sunSpin —— freezes in place when it stops. This one is already dealt with inside PetView
+//      (on stopping it snaps to the nearest 40° detent; with 9-fold symmetry you cannot tell, but the pose is
+//      uniquely determined)
+//   ② zzz drift —— fmod(t·0.42, 1), period 1/0.42 seconds, driven by absolute time
+//   ③ the tug of the gauges on either side —— sin(t·rate), rate = 0.9 + 0.011×usage%, also driven by absolute time
+//   ④ body breathing —— an accumulated phase, 1.6 rad/s awake and 1.0 asleep, so it depends on how the timeline
+//      is arranged
 //
-// ②③ 是绝对时间的函数，所以循环长度必须同时是它们周期的整数倍。
-// 再加上「整数帧」这个约束，最小解是 T = 50/3 秒：
-//   zzz：0.42 × 50/3 = 7 周，整数 ✓
-//   60fps：50/3 × 60 = 1000 帧，整数 ✓
-// T 一定，③ 就把用量百分比反解出来了（见 demoRows 的说明）。
-// ④ 没有解析解，用二分调「会话跑完」的时刻去凑（见 solveBreath）。
+// ② and ③ are functions of absolute time, so the loop length has to be a whole-number multiple of both their
+// periods at once. Adding the "whole number of frames" constraint on top, the smallest solution is T = 50/3 seconds:
+//   zzz: 0.42 × 50/3 = 7 cycles, a whole number ✓
+//   60fps: 50/3 × 60 = 1000 frames, a whole number ✓
+// With T fixed, ③ then solves the usage percentage backwards for us (see the note on demoRows).
+// ④ has no analytical solution, so we bisect on the moment the "session finishes" until it fits (see solveBreath).
 let loopT: CGFloat = 50.0 / 3.0
 let loopFrames = isVideo ? 1000 : 400
 let dt = loopT / CGFloat(loopFrames)
 let fps = CGFloat(loopFrames) / loopT
-// GIF 的帧延迟只能存 1/100 秒的整数倍。400 帧对应 0.04167 秒，存成 0.04——
-// 播放会快 4%，但**帧序列本身是闭合的**，无缝与否只看画面内容不看播放速度
+// A GIF frame delay can only store whole multiples of 1/100 second. 400 frames works out at 0.04167 seconds, stored
+// as 0.04 — playback runs 4% fast, but **the frame sequence itself is closed**, and whether it is seamless depends
+// on the picture content, not on the playback speed
 let gifDelay = 0.04
 
-// 暖机：先空转一段再开始录。
-// 光芒伸长量 rayPull、圆环缓动 ringShown 这些是低通滤波量，从初值 0 出发要
-// 若干秒才收敛到稳态；不暖机的话第 0 帧还在收敛途中，而末帧早已稳态，接不上。
+// Warm-up: let it spin idle for a while before starting to record.
+// The ray extension rayPull, the ring easing ringShown and the like are low-pass-filtered quantities; starting from
+// an initial value of 0 they need several seconds to converge on their steady state; without a warm-up frame 0 is
+// still on its way there while the last frame settled long ago, and they do not join up.
 //
-// 暖机多长是自由的——闭合条件只跟循环长度有关，与从哪个相位起录无关。
-// 默认版空转整整一个周期，顺便让 ②③ 回到 t=0 的相位。
+// How long the warm-up runs is free — the closure condition depends only on the loop length, not on which phase we
+// start recording from. The default version idles for a full period, which also brings ② and ③ back to their t=0 phase.
 //
-// 躲模式则拿它当旋钮用。全程睡着时呼吸速率恒为 1.0 rad/s，一轮下来净增
-// 16.667 rad，离 2π 的整数倍差 2.183 rad，**相位无论如何对不上**。
-// 但呼吸进画面的方式是 sin(φ)，而
+// Dodge mode, on the other hand, uses it as a knob. Asleep the whole way through, the breathing rate is a constant
+// 1.0 rad/s, so one round nets 16.667 rad, which is 2.183 rad away from a whole-number multiple of 2π, and
+// **the phase cannot be made to line up whatever you do**.
+// But the way breathing reaches the picture is sin(φ), and
 //     sin(φ) − sin(φ + 2.183) = 1.778 · cos(φ + 1.0915)
-// 只要起点相位落在让这个 cos 为零的地方，两端的呼吸**取值**就严格相同——
-// 相位对不上，值可以对上。代价只是两端的呼吸方向相反，
-// 而那点差异是每帧 0.016pt，可以忽略
-// **两个模式必须用同一个暖机长度**，否则第 0 帧的 zzz / 呼吸 / 仪表相位各不相同，
-// 两条片子各自能循环、却互相拼不上。默认版的暖机本来就是自由的（它的呼吸靠
-// sessionEnd 对齐，与暖机无关），所以统一取躲模式需要的那个值，两边都满足
-// 暖机固定一个循环长度：这样两个模式的第 0 帧逐像素相同，
-// 四条片子（以及此前已经发出去的那两条）可以任意顺序首尾相接。
+// so as long as the starting phase lands where that cos is zero, the breathing **value** at the two ends is strictly
+// identical — the phase does not line up, but the value can. The only price is that the breathing runs in opposite
+// directions at the two ends, and that difference amounts to 0.016pt per frame, which is negligible
+// **The two modes must use the same warm-up length**, otherwise the zzz / breathing / gauge phases at frame 0 are all
+// different, and the two clips each loop on their own yet cannot be spliced to each other. The default version's
+// warm-up was free anyway (its breathing is aligned via sessionEnd, which has nothing to do with the warm-up), so we
+// settle on the value dodge mode needs and both are satisfied
+// The warm-up is fixed at one loop length: that way frame 0 is pixel-for-pixel identical in both modes, and the four
+// clips (plus the two already published earlier) can be joined end to end in any order.
 //
-// 代价落在躲模式身上。全程睡着时呼吸速率恒为 1.0 rad/s，没有可调旋钮，
-// 一轮下来净增 16.667 rad，离 2π 的整数倍差 2.183 rad——首帧、时长、
-// 自身无缝这三件事在数学上凑不齐，只能牺牲一件。
-// 试过把暖机挪到让呼吸「取值」对齐的位置（24.65 秒），接缝能从 22× 降到 2×，
-// 但那样首帧就和已发出去的片子对不上了；也试过把躲版拉到 50 秒
-// （呼吸只差 0.266 rad，接缝 1.59×），但时长就不一致了。
-// 最终取「首帧一致 + 时长一致」，承受循环处所有光芒尖端同时跳约 4px：
-// 单次播放看不出来，循环播放时会周期性地噗一下
+// The price lands on dodge mode. Asleep the whole way through, the breathing rate is a constant 1.0 rad/s, there is
+// no knob to turn, one round nets 16.667 rad, which is 2.183 rad away from a whole-number multiple of 2π — first
+// frame, duration and being seamless in itself are three things that mathematically cannot all be had, so one of
+// them has to be sacrificed.
+// I tried moving the warm-up to where the breathing "value" lines up (24.65 seconds), which does bring the seam down
+// from 22× to 2×, but then the first frame no longer matches the clips already published; I also tried stretching the
+// dodge version to 50 seconds (breathing off by only 0.266 rad, seam 1.59×), but then the durations do not match.
+// In the end I went with "same first frame + same duration" and put up with all the ray tips jumping about 4px at
+// once at the loop point: you cannot see it in a single playback, but on loop it goes pop periodically
 let warmT: CGFloat = loopT
 let warmFrames = Int((warmT / dt).rounded())
 
-/// 会话「跑完转未读」的时刻。这是留给呼吸相位的调节旋钮——
-/// 醒着 1.6、睡着 1.0 rad/s，把这个时刻挪早挪晚就改变了醒着的总时长
+/// The moment the session "finishes and turns unread". This is the adjustment knob left for the breathing phase —
+/// 1.6 rad/s awake and 1.0 asleep, so moving this moment earlier or later changes the total time spent awake
 var sessionEnd: CGFloat = 9.50
 
 struct Beat { let at: CGFloat; let action: (Scene) -> Void }
 func beatList() -> [Beat] {
     if dodge {
-        // 与默认版**完全相同的节奏**：同样的时长、同样的展开与收起时刻、
-        // 同样的光标轨迹。唯一的差别是全程没有会话，于是太阳一直睡着，
-        // 引力方向反过来——光标凑近时它把光芒缩回去、身子往后躲。
-        // 收起的时刻沿用默认版解出来的 sessionEnd + 0.85，保证两条片子对得上
+        // **Exactly the same rhythm** as the default version: same duration, same moments of expanding and
+        // collapsing, same cursor path. The only difference is that there is no session at all, so the sun stays
+        // asleep and the direction of attraction is reversed — when the cursor comes close it pulls its rays back
+        // in and leans away.
+        // The collapse moment reuses the sessionEnd + 0.85 solved for in the default version, which guarantees the
+        // two clips line up
         return [
             Beat(at: warmT + 0.00) { $0.model.hovered = false; $0.model.sessions = [] },
             Beat(at: warmT + 0.70) { $0.model.hovered = true },
@@ -248,40 +271,45 @@ func beatList() -> [Beat] {
     ]
 }
 
-// 鼠标引力段：光标从右下进场，贴着太阳绕过去，再从左下离场。
-// 两端快、中间慢——停留久一点才看得清光芒被拽长、身体前倾、眼珠跟着转。
-// 之后留一段无人打扰的安静时间，看「被两侧仪表一吸一斥」的呼吸
+// The mouse-attraction stretch: the cursor comes in from the bottom right, sweeps round close past the sun, then
+// leaves at the bottom left.
+// Fast at both ends and slow in the middle — it has to linger a little for you to see the rays being pulled long,
+// the body leaning forward and the eyes following along.
+// After that comes a quiet stretch with nobody bothering it, to watch the breathing as it is "pulled and pushed by
+// the gauges on either side"
 let mouseFrom: CGFloat = 2.30, mouseTo: CGFloat = 5.40
 
-// 躲模式复用同一条路径、同一个进出时刻——两个版本唯一的差别是有没有会话
+// Dodge mode reuses the same path and the same entry and exit moments — the only difference between the two versions
+// is whether there is a session
 func demoMouse(_ t: CGFloat) -> NSPoint? {
     let tt = t - warmT
     guard tt >= mouseFrom, tt <= mouseTo else { return nil }
     let u = (tt - mouseFrom) / (mouseTo - mouseFrom)
-    let uu = min(1, max(0, u + 0.12 * sin(2 * .pi * u)))   // 中段放慢
+    let uu = min(1, max(0, u + 0.12 * sin(2 * .pi * u)))   // slow down through the middle
     let a = (12 + 168 * uu) * .pi / 180
     let r = 118 - 84 * sin(.pi * uu)
-    // 太阳中心：展开态固定在顶行中线（视图坐标翻转，y 向下）
+    // Centre of the sun: in the expanded state it is fixed on the mid-line of the top row (view coordinates are
+    // flipped, y points down)
     return NSPoint(x: winW / 2 + cos(a) * r,
                    y: 10 + PetView.topRowH / 2 + sin(a) * r)
 }
 
-// MARK: - 画布
+// MARK: - Canvas
 
-// 演示数据没到上限，「解封时间」那一行不会出现，画布不给它留位
+// The demo data never reaches the limit, so the "unlock time" line never appears and the canvas leaves no room for it
 let maxH = 10 + PetView.topRowH + 2 + PetView.blockH
     + (PetView.blockGap + 2 + 19 + CGFloat(demoRows().count) * 15 + 18) + 10
 
-/// 视频是竖屏 1080×1920；GIF 用贴着卡片的小画布，省体积
+/// The video is portrait 1080×1920; the GIF uses a small canvas hugging the card, which saves size
 let pixelSize = isVideo ? CGSize(width: 1080, height: 1920)
                         : CGSize(width: (winW + 44) * 2.5, height: (maxH + 44) * 2.5)
-/// 卡片在画布上的放大倍数（点 → 像素）
-let cardPx: CGFloat = isVideo ? 4.8 : 2.5   // 视频里卡片贴满宽度，观感与 GIF 一致
+/// How much the card is magnified on the canvas (points → pixels)
+let cardPx: CGFloat = isVideo ? 4.8 : 2.5   // in the video the card fills the width, so it reads the same as the GIF
 
-// MARK: - 背景（让玻璃有东西可透）
+// MARK: - Background (so the glass has something to show through)
 
-/// 一张抽象的「桌面壁纸」。纯色底会让玻璃和不透明卡片长得一样，
-/// 必须有内容透上来，模糊才看得出是玻璃
+/// An abstract "desktop wallpaper". A flat-colour backing would make the glass look exactly like an opaque card;
+/// there has to be content coming through before the blur reads as glass
 func makeBackdrop(_ px: CGSize) -> CGImage {
     let w = Int(px.width), h = Int(px.height)
     let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: w, pixelsHigh: h,
@@ -298,7 +326,8 @@ func makeBackdrop(_ px: CGSize) -> CGImage {
         : [NSColor(calibratedRed: 0.93, green: 0.94, blue: 0.97, alpha: 1),
            NSColor(calibratedRed: 0.87, green: 0.90, blue: 0.95, alpha: 1)]
     NSGradient(colors: base)?.draw(in: r, angle: 72)
-    // 几团柔和的色斑：给玻璃一点可透的色彩层次，也让模糊有东西可糊
+    // A few soft blobs of colour: gives the glass some colour depth to show through, and gives the blur something
+    // to blur
     let blobs: [(CGFloat, CGFloat, CGFloat, NSColor)] = darkMode
         ? [(0.24, 0.78, 0.46, NSColor(calibratedRed: 0.36, green: 0.22, blue: 0.62, alpha: 0.55)),
            (0.80, 0.62, 0.40, NSColor(calibratedRed: 0.85, green: 0.36, blue: 0.32, alpha: 0.34)),
@@ -317,25 +346,28 @@ func makeBackdrop(_ px: CGSize) -> CGImage {
 }
 
 let backdrop = makeBackdrop(pixelSize)
-/// 预先糊好整张背景：玻璃只是把它「照」出来，背景不动，糊一次就够
+/// Blur the whole background up front: the glass only "shines" it through, the background never moves, so blurring
+/// it once is enough
 let ciContext = CIContext()
 let blurred: CGImage = {
     let input = CIImage(cgImage: backdrop)
-    // clampedToExtent 防止边缘被透明像素拖淡，糊完再裁回原尺寸
+    // clampedToExtent stops the edges being washed out by transparent pixels; crop back to the original size once
+    // the blur is done
     let f = input.clampedToExtent()
         .applyingFilter("CIGaussianBlur", parameters: ["inputRadius": cardPx * 11])
         .cropped(to: input.extent)
     return ciContext.createCGImage(f, from: input.extent) ?? backdrop
 }()
 
-// MARK: - 绘制
+// MARK: - Drawing
 
 func ease(_ x: CGFloat) -> CGFloat {
     let p = min(1, max(0, x)); return p * p * (3 - 2 * p)
 }
 
-/// 玻璃卡片底：把糊过的背景按卡片形状「照」出来，再压一层淡淡的白/黑。
-/// 边缘映光不在这里画——那是 PetView.drawCardEdge() 的事，App 本体也要有
+/// The glass card base: "shine" the blurred background through in the shape of the card, then lay a faint white/black
+/// on top of it.
+/// The edge light is not drawn here — that is PetView.drawCardEdge()'s job, and the app itself needs it too
 func drawGlass(in rect: NSRect, radius rad: CGFloat, alpha a: CGFloat, canvas: CGSize) {
     let clip = NSBezierPath(roundedRect: rect, xRadius: rad, yRadius: rad)
     NSGraphicsContext.saveGraphicsState()
@@ -344,7 +376,7 @@ func drawGlass(in rect: NSRect, radius rad: CGFloat, alpha a: CGFloat, canvas: C
     sh.shadowOffset = NSSize(width: 0, height: -cardPx * 3)
     sh.shadowColor = NSColor.black.withAlphaComponent((darkMode ? 0.55 : 0.24) * a)
     sh.set()
-    NSColor.black.withAlphaComponent(0.001).setFill()   // 只为投影，本身不可见
+    NSColor.black.withAlphaComponent(0.001).setFill()   // purely for the drop shadow; invisible in itself
     clip.fill()
     NSGraphicsContext.restoreGraphicsState()
 
@@ -359,13 +391,13 @@ func drawGlass(in rect: NSRect, radius rad: CGFloat, alpha a: CGFloat, canvas: C
     NSGraphicsContext.restoreGraphicsState()
 }
 
-/// 光标。不画的话，太阳对着空气做反应，看的人不知道发生了什么
+/// The cursor. Without it the sun reacts to thin air and the viewer has no idea what is going on
 func drawCursor(at p: NSPoint, scale s: CGFloat) {
     let pts: [(CGFloat, CGFloat)] = [(0, 0), (0, 16.6), (4.3, 12.7), (7.0, 18.9),
                                      (9.9, 17.6), (7.2, 11.6), (12.0, 11.3)]
     let path = NSBezierPath()
     for (i, q) in pts.enumerated() {
-        let v = NSPoint(x: p.x + q.0 * s, y: p.y - q.1 * s)   // 画布未翻转，箭头朝下
+        let v = NSPoint(x: p.x + q.0 * s, y: p.y - q.1 * s)   // the canvas is not flipped, so the arrow points down
         i == 0 ? path.move(to: v) : path.line(to: v)
     }
     path.close()
@@ -384,7 +416,7 @@ func drawCursor(at p: NSPoint, scale s: CGFloat) {
     path.fill()
 }
 
-/// 画一帧完整画面（背景 + 玻璃 + 桌宠 + 光标），返回像素图
+/// Draw one complete frame (background + glass + pet + cursor) and return the pixel image
 func renderFrame(_ sc: Scene) -> CGImage? {
     let size = sc.desiredSize()
     guard let petRep = sc.petBitmap(scale: cardPx) else { return nil }
@@ -395,13 +427,14 @@ func renderFrame(_ sc: Scene) -> CGImage? {
                                      bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true,
                                      isPlanar: false, colorSpaceName: .deviceRGB,
                                      bytesPerRow: 0, bitsPerPixel: 0) else { return nil }
-    out.size = pixelSize                       // 1:1，直接按像素画
+    out.size = pixelSize                       // 1:1, drawing straight in pixels
     guard let octx = NSGraphicsContext(bitmapImageRep: out) else { return nil }
     NSGraphicsContext.saveGraphicsState()
     NSGraphicsContext.current = octx
     octx.cgContext.draw(backdrop, in: CGRect(origin: .zero, size: pixelSize))
 
-    // 卡片：水平居中；GIF 顶部对齐（卡片向下生长，太阳基本不动），视频整体居中
+    // The card: centred horizontally; the GIF is top-aligned (the card grows downwards and the sun barely moves),
+    // the video is centred as a whole
     let cw = size.width * cardPx, ch = size.height * cardPx
     let x = (pixelSize.width - cw) / 2
     let y = isVideo ? (pixelSize.height - ch) / 2
@@ -409,14 +442,14 @@ func renderFrame(_ sc: Scene) -> CGImage? {
     let card = NSRect(x: x, y: y, width: cw, height: ch)
 
     let e = sc.view.expandProgress
-    if e > 0.01 {                              // 完全收起时没有卡片，只剩太阳
+    if e > 0.01 {                              // fully collapsed there is no card, only the sun
         let r0 = min(cw, ch) / 2
         let rad = min(r0 + (PetView.cardRadius * cardPx - r0) * e, r0)
         drawGlass(in: card, radius: rad, alpha: ease(min(1, e / 0.45)), canvas: pixelSize)
     }
     petImg.draw(in: card)
     if let m = sc.view.mouseOverride {
-        // 视图坐标翻转（y 向下），画布不翻转，换算一下
+        // view coordinates are flipped (y points down) while the canvas is not, so convert
         drawCursor(at: NSPoint(x: x + m.x * cardPx, y: y + ch - m.y * cardPx),
                    scale: cardPx * 0.62)
     }
@@ -424,10 +457,11 @@ func renderFrame(_ sc: Scene) -> CGImage? {
     return out.cgImage
 }
 
-// MARK: - 对齐呼吸相位
+// MARK: - Aligning the breathing phase
 
-/// 空转一个周期后再跑一整轮，返回呼吸相位在这一轮里的净增量。
-/// 只推进不绘制——呼吸只跟 sleepT 和 dt 有关，与画不画无关，所以很快
+/// Idle for one period, then run a full round and return the net gain in the breathing phase over that round.
+/// It only advances and never draws — breathing depends only on sleepT and dt, not on whether anything is drawn,
+/// so it is fast
 func breathGain() -> CGFloat {
     let sc = Scene()
     for _ in 0..<warmFrames { sc.step(dt) }
@@ -436,15 +470,15 @@ func breathGain() -> CGFloat {
     return sc.view.breathPhaseSnapshot - a
 }
 
-/// 呼吸相位没有解析解，二分「会话跑完」的时刻去凑：
-/// 醒着 1.6、睡着 1.0 rad/s，把它挪晚一秒，一轮下来就多攒 0.6 rad。
-/// 目标是让净增量落在 2π 的整数倍上
+/// The breathing phase has no analytical solution, so we bisect on the moment the "session finishes" until it fits:
+/// 1.6 rad/s awake and 1.0 asleep, so moving it one second later banks an extra 0.6 rad over a round.
+/// The goal is to land the net gain on a whole-number multiple of 2π
 func solveBreath() {
     let twoPi = CGFloat.pi * 2
     var lo: CGFloat = 4.5, hi: CGFloat = 12.5
     sessionEnd = lo; let gLo = breathGain()
     sessionEnd = hi; let gHi = breathGain()
-    // 取区间内可达的那个整数倍
+    // take the whole-number multiple that is reachable inside the interval
     let target = (gLo / twoPi).rounded(.up) * twoPi
     guard target <= gHi else {
         print(String(format: "  呼吸：区间 [%.2f, %.2f] 内没有可达的 2π 整数倍（净增量 %.3f–%.3f），保持默认",
@@ -463,15 +497,17 @@ func solveBreath() {
     print(String(format: "  呼吸：会话结束点 %.4f 秒，净增量 %.4f rad = %.3f 圈，残差 %.2e rad",
                  sessionEnd, g, g / twoPi, residual))
 }
-// 躲模式全程睡着，呼吸速率恒为 1.0 rad/s，「醒着多久」这个旋钮不存在，
-// 呼吸相位无法对齐（zzz 要整周、呼吸要 2π 整数倍，而 0.42×2π 是无理数）。
-// 时长既然要跟默认版一致，就只能如实承受这项残差——下面的自检会把它量出来
+// In dodge mode it is asleep the whole way through, the breathing rate is a constant 1.0 rad/s, the "how long it
+// stays awake" knob does not exist, and the breathing phase cannot be aligned (zzz wants whole cycles, breathing
+// wants a whole-number multiple of 2π, and 0.42×2π is irrational).
+// Since the duration has to match the default version, we simply have to live with this residual — the self-check
+// below measures it
 solveBreath()
 
-// MARK: - 正式渲染
+// MARK: - The real render
 
 let scene = Scene()
-for _ in 0..<warmFrames { scene.step(dt) }      // 暖机，不录
+for _ in 0..<warmFrames { scene.step(dt) }      // warm-up, not recorded
 var frames: [CGImage] = []
 var firstPetRep: NSBitmapImageRep?
 while frames.count < loopFrames {
@@ -481,8 +517,9 @@ while frames.count < loopFrames {
     frames.append(f)
 }
 
-// 第 0 帧的指纹。两个模式跑出来必须一模一样，否则两条片子拼不上——
-// 这是「各自能循环」之外的另一件事，不能靠推理，要量
+// The fingerprint of frame 0. The two modes must produce exactly the same one, otherwise the two clips will not
+// splice — this is a separate matter from "each of them loops on its own", and it cannot be reasoned about, it has
+// to be measured
 if let f0 = firstPetRep, let d = f0.bitmapData {
     var h: UInt64 = 1469598103934665603
     for i in 0..<(f0.bytesPerRow * f0.pixelsHigh) {
@@ -491,8 +528,9 @@ if let f0 = firstPetRep, let d = f0.bitmapData {
     print(String(format: "  第 0 帧指纹 %016llx（%d×%d）", h, f0.pixelsWide, f0.pixelsHigh))
 }
 
-// 自检：末帧之后的那一帧应该与第 0 帧完全相同，这才叫接得上。
-// 顺便量一下空闲段相邻两帧的差，作为「一帧正常步进」的基准线
+// Self-check: the frame after the last frame should be exactly identical to frame 0 — that is what joining up means.
+// While we are at it, measure the difference between two adjacent frames in the idle stretch, as a baseline for
+// "one normal frame step"
 if let seamRep = scene.petBitmap(scale: 1) {
     let probe = Scene()
     for _ in 0..<warmFrames { probe.step(dt) }
@@ -523,7 +561,7 @@ if let seamRep = scene.petBitmap(scale: 1) {
     }
 }
 
-// MARK: - 输出
+// MARK: - Output
 
 func fail(_ s: String) -> Never {
     FileHandle.standardError.write((s + "\n").data(using: .utf8)!); exit(1)
@@ -542,10 +580,11 @@ if isVideo {
         AVVideoHeightKey: Int(pixelSize.height),
         AVVideoCompressionPropertiesKey: [
             AVVideoAverageBitRateKey: 40_000_000,
-            // 全 I 帧。首帧本来是关键帧、末帧是预测帧，量化方式不同，
-            // 于是内容完全相同的两帧解码出来仍有约 0.6/255 的差——加码率
-            // 治不了（9→24→40 Mbps 基本没动）。每帧独立编码才对得上。
-            // 代价是文件大好几倍，但这是发社媒用的素材，不在乎
+            // All I-frames. The first frame would otherwise be a key frame and the last a predicted frame, which
+            // are quantised differently, so two frames with identical content still decode about 0.6/255 apart —
+            // and raising the bitrate does not cure it (9→24→40 Mbps barely moved it). Only encoding every frame
+            // independently makes them match.
+            // The price is a file several times larger, but this is material for social media, so we do not care
             AVVideoMaxKeyFrameIntervalKey: 1,
             AVVideoProfileLevelKey: AVVideoProfileLevelH264HighAutoLevel,
         ],

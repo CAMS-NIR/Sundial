@@ -1,6 +1,7 @@
 import AppKit
-// 独立的图标生成器：几何与配色照抄 PetView.drawPet 的太阳部分（图标是静态素材，
-// 不跟着代码走，改了太阳要重新跑一次这个脚本）
+// A standalone icon generator: the geometry and colours are copied straight off the sun part of
+// PetView.drawPet (the icons are static assets, they don't follow the code, so if the sun is changed
+// this script has to be run again)
 let coralLight = NSColor(srgbRed: 0.914, green: 0.596, blue: 0.451, alpha: 1)
 let coralDeep  = NSColor(srgbRed: 0.769, green: 0.404, blue: 0.271, alpha: 1)
 let faceDark   = NSColor(srgbRed: 0.145, green: 0.106, blue: 0.086, alpha: 1)
@@ -11,12 +12,13 @@ func render(size: Int, small: Bool, dark: Bool, path: String) {
         colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
     NSGraphicsContext.saveGraphicsState()
     NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)!
-    let U = CGFloat(size) / 1024.0            // 以 1024 为设计基准
+    let U = CGFloat(size) / 1024.0            // 1024 is the design baseline
 
-    // macOS 图标画布：824×824 的圆角方形居中，四周留白
+    // The macOS icon canvas: an 824×824 rounded square, centred, with padding all round
     let plate = NSRect(x: 100 * U, y: 100 * U, width: 824 * U, height: 824 * U)
     let plateShape = NSBezierPath(roundedRect: plate, xRadius: 185 * U, yRadius: 185 * U)
-    // 深色版底板用暖调深褐而不是中性黑：太阳是暖珊瑚，配冷黑会发脏
+    // The dark version's plate uses a warm dark brown rather than a neutral black: the sun is a warm coral,
+    // and a cold black next to it looks muddy
     let plateTop = dark ? NSColor(srgbRed: 0.180, green: 0.137, blue: 0.122, alpha: 1)
                         : NSColor(srgbRed: 0.992, green: 0.965, blue: 0.937, alpha: 1)
     let plateBot = dark ? NSColor(srgbRed: 0.106, green: 0.078, blue: 0.067, alpha: 1)
@@ -24,7 +26,7 @@ func render(size: Int, small: Bool, dark: Bool, path: String) {
     NSGradient(starting: plateTop, ending: plateBot)!.draw(in: plateShape, angle: -90)
 
     let cx = plate.midX, cy = plate.midY
-    let s = (small ? 7.5 : 7.05) * U                          // 太阳整体缩放（PetView 里是 0.44）
+    let s = (small ? 7.5 : 7.05) * U                          // overall scale of the sun (it is 0.44 in PetView)
     let rayCount = 9
     (dark ? NSColor(srgbRed: 0.831, green: 0.463, blue: 0.325, alpha: 1) : coralDeep).setFill()
     for i in 0..<rayCount {
@@ -42,9 +44,9 @@ func render(size: Int, small: Bool, dark: Bool, path: String) {
     let sunBot = dark ? NSColor(srgbRed: 0.831, green: 0.463, blue: 0.325, alpha: 1) : coralDeep
     NSGradient(starting: sunTop, ending: sunBot)!
         .draw(in: NSBezierPath(ovalIn: NSRect(x: cx - r, y: cy - r, width: r * 2, height: r * 2)),
-              angle: 90)   // 非翻转坐标系：上浅下深要用 +90
+              angle: 90)   // unflipped coordinate system: light at the top and dark at the bottom needs +90
 
-    // 脸（非翻转坐标系，y 向上，所以 PetView 里的 +y 在这里取 -y）
+    // The face (unflipped coordinate system, y points up, so a +y in PetView becomes -y here)
     faceDark.setFill()
     for dx in [-12.0 * s, 12.0 * s] {
         NSBezierPath(ovalIn: NSRect(x: cx + dx - 2.4 * s, y: cy + 2 * s - 3 * s,
@@ -68,8 +70,8 @@ func render(size: Int, small: Bool, dark: Bool, path: String) {
     NSGraphicsContext.restoreGraphicsState()
     try! rep.representation(using: .png, properties: [:])!.write(to: URL(fileURLWithPath: path))
 }
-// small 由「逻辑点数」决定而不是像素数：32x32@2x 是 64 像素但只有 32 点，
-// 也该用简化版
+// `small` is decided by the "logical point count" rather than the pixel count: 32x32@2x is 64 pixels but
+// only 32 points, so it should use the simplified version too
 let entries: [(Int, Bool, String)] = [
     (16, true, "icon_16x16"), (32, true, "icon_16x16@2x"),
     (32, true, "icon_32x32"), (64, true, "icon_32x32@2x"),

@@ -1,7 +1,8 @@
-// Sundial (Windows 版) — 桌宠自己的 OAuth 登录、令牌持久化、凭证读取
+// Sundial (Windows version) — the pet's own OAuth login, token persistence, credential reading
 //
-// 移植自 macOS 版 Auth.swift。OAuth 的各项参数（client_id / 三个 URL / scope）
-// 与 Swift 原文逐字一致，改动其中任何一个都会让服务端直接拒绝，别动。
+// Ported from the macOS version's Auth.swift. Every OAuth parameter (client_id / the three URLs / scope)
+// is word-for-word identical to the Swift original; change any one of them and the server rejects you
+// outright, so leave them alone.
 
 using System.Security.Cryptography;
 using System.Text;
@@ -10,9 +11,9 @@ using System.Text.Json.Serialization;
 
 namespace Sundial.Core;
 
-// MARK: - 桌宠自己的 OAuth 登录（PKCE，手动粘贴授权码）
+// MARK: - The pet's own OAuth login (PKCE, authorisation code pasted by hand)
 
-/// <summary>OAuth 2.0 PKCE 的常量与 URL 构造。</summary>
+/// <summary>OAuth 2.0 PKCE constants and URL construction.</summary>
 public static class OAuth
 {
     public const string ClientId = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
@@ -21,26 +22,26 @@ public static class OAuth
     public const string TokenEndpoint = "https://console.anthropic.com/v1/oauth/token";
     public const string AuthorizeEndpoint = "https://claude.ai/oauth/authorize";
 
-    /// <summary>base64url：去掉补位的 '='，'+' '/' 换成 '-' '_'。</summary>
+    /// <summary>base64url: drop the '=' padding, swap '+' and '/' for '-' and '_'.</summary>
     public static string Base64Url(byte[] data) =>
         Convert.ToBase64String(data)
             .Replace("+", "-")
             .Replace("/", "_")
             .Replace("=", "");
 
-    /// <summary>新的 code_verifier：32 字节强随机。</summary>
+    /// <summary>A new code_verifier: 32 bytes of strong randomness.</summary>
     public static string NewVerifier() => Base64Url(RandomNumberGenerator.GetBytes(32));
 
-    /// <summary>code_challenge = base64url(SHA256(verifier))，即 S256 方式。</summary>
+    /// <summary>code_challenge = base64url(SHA256(verifier)), i.e. the S256 method.</summary>
     public static string Challenge(string verifier) =>
         Base64Url(SHA256.HashData(Encoding.UTF8.GetBytes(verifier)));
 
-    /// <summary>授权页地址。state 与 verifier 同值，和官方客户端一致。</summary>
+    /// <summary>The authorisation page URL. state holds the same value as verifier, just like the official client.</summary>
     public static string AuthorizeUrl(string verifier)
     {
-        // 参数顺序照抄 Swift 原文。手工拼串而不是用 UriBuilder：
-        // 这里每个值都必须按 application/x-www-form-urlencoded 转义（scope 里有空格），
-        // Uri.EscapeDataString 是最确定的做法。
+        // Parameter order copied straight from the Swift original. Built by hand as a string rather than
+        // with UriBuilder: every value here has to be escaped as application/x-www-form-urlencoded
+        // (scope contains spaces), and Uri.EscapeDataString is the most predictable way of doing it.
         var q = new (string Key, string Value)[]
         {
             ("code", "true"),
@@ -64,37 +65,40 @@ public static class OAuth
     }
 }
 
-/// <summary>持久化的令牌。</summary>
+/// <summary>The persisted token.</summary>
 /// <remarks>
-/// JSON 字段名沿用 Swift 版 Codable 的默认命名（accessToken/refreshToken/expiresAt），
-/// 这样两版的凭证文件格式互通，Mac 上做对照测试时不用改数据。
+/// The JSON field names keep the Swift version's default Codable naming (accessToken/refreshToken/expiresAt),
+/// so the credential file format is interchangeable between the two versions and no data has to be touched
+/// when running side-by-side tests on a Mac.
 /// </remarks>
 public sealed class StoredToken
 {
     [JsonPropertyName("accessToken")] public string AccessToken { get; set; } = "";
     [JsonPropertyName("refreshToken")] public string RefreshToken { get; set; } = "";
 
-    /// <summary>秒级时间戳（不是毫秒——CLI 那边的 expiresAt 才是毫秒，别混）。</summary>
+    /// <summary>A timestamp in seconds (not milliseconds — it is the CLI's expiresAt that is in milliseconds, don't mix the two up).</summary>
     [JsonPropertyName("expiresAt")] public double ExpiresAt { get; set; }
 
-    /// <summary>留 300 秒余量，免得刚判定「还没过期」请求就发出去过期了。</summary>
+    /// <summary>Leave 300 seconds of slack, so a token just judged "not expired yet" doesn't expire in the gap before the request goes out.</summary>
     [JsonIgnore]
     public bool IsExpiring => ExpiresAt < DateTimeOffset.UtcNow.ToUnixTimeSeconds() + 300;
 }
 
 public enum OAuthErrorKind
 {
-    Network,      // 连不上、超时——瞬时问题
-    Server,       // 服务端返回了非 200
-    BadResponse,  // 200 但内容解析不出来
-    BadPaste,     // 用户粘贴的东西里认不出授权码
+    Network,      // can't connect, timed out — transient problems
+    Server,       // the server returned something other than 200
+    BadResponse,  // 200, but the body won't parse
+    BadPaste,     // no authorisation code could be recognised in what the user pasted
 }
 
 /// <remarks>
-/// 必须显式声明实现 <see cref="ICredentialRejection"/>：UsageFetcher 是按接口认「凭证被否定」的，
-/// C# 不做结构化匹配，光有个同名属性不算数。漏了这一句，「登录已失效」那条分支永远走不到，
-/// refresh token 真死了也只会一直显示「网络暂时不可用」——对应 Swift 版 OAuthError.isCredentialRejection
-/// 那条唯一允许作废令牌的判据，丢了它整套错误分级就废了。
+/// Implementing <see cref="ICredentialRejection"/> has to be declared explicitly: UsageFetcher recognises
+/// "the credential was rejected" through the interface, and C# does not do structural matching — merely
+/// having a property of the same name counts for nothing. Leave this out and the "login has expired" branch
+/// is never reached: even with a genuinely dead refresh token it will just go on showing "network temporarily
+/// unavailable". This is the counterpart of the Swift version's OAuthError.isCredentialRejection, the one and
+/// only test that permits discarding a token; lose it and the whole error-grading scheme is ruined.
 /// </remarks>
 public sealed class OAuthException : Exception, ICredentialRejection
 {
@@ -111,8 +115,9 @@ public sealed class OAuthException : Exception, ICredentialRejection
     }
 
     /// <summary>
-    /// 只有服务端明确否定这份凭证（RFC 6749 §5.2 invalid_grant / 客户端认证失败）才算登录失效。
-    /// 网络故障、429 限流、5xx 都是瞬时问题，绝不能删掉本地存着的 refresh token。
+    /// Only the server explicitly rejecting this credential (RFC 6749 §5.2 invalid_grant / client
+    /// authentication failure) counts as the login having expired. Network failures, 429 rate limiting and
+    /// 5xx are all transient problems — never delete the locally stored refresh token for those.
     /// </summary>
     public bool IsCredentialRejection =>
         Kind == OAuthErrorKind.Server && (StatusCode == 400 || StatusCode == 401);
@@ -120,12 +125,12 @@ public sealed class OAuthException : Exception, ICredentialRejection
 
 public enum CredErrorKind
 {
-    /// <summary>凭证存储读取被拒（Windows 上一般是 DPAPI 解密失败），重试可能成功。</summary>
+    /// <summary>Reading the credential store was refused (on Windows this is usually a DPAPI decryption failure); a retry may succeed.</summary>
     StoreDenied,
     NotLoggedIn,
     MalformedData,
     NoOauth,
-    /// <summary>条目在，但只有 mcpOAuth：登录令牌被 Claude Code 存到别处去了。</summary>
+    /// <summary>The entry is there, but holds only mcpOAuth: Claude Code has put the login token somewhere else.</summary>
     TokenElsewhere,
     Expired,
 }
@@ -135,10 +140,10 @@ public sealed class CredException(CredErrorKind kind) : Exception(kind.ToString(
     public CredErrorKind Kind { get; } = kind;
 }
 
-/// <summary>Claude Code CLI 自带的凭证（桌宠没自己登录时的回退来源）。</summary>
+/// <summary>The credentials that come with Claude Code CLI (the fallback source when the pet has no login of its own).</summary>
 public sealed record Credentials(string AccessToken, string? SubscriptionType);
 
-/// <summary>把异常翻译成给用户看的话。</summary>
+/// <summary>Translates exceptions into wording meant for the user.</summary>
 public static class OAuthErrorText
 {
     public static string Describe(Exception e)
@@ -172,11 +177,13 @@ public static class OAuthErrorText
     }
 }
 
-/// <summary>令牌端点的两个调用：用授权码换令牌、用 refresh token 续期。</summary>
+/// <summary>The two calls against the token endpoint: exchanging an authorisation code for a token, and renewing with a refresh token.</summary>
 public static class OAuthClient
 {
-    // 静态复用：每次 new HttpClient 会耗尽端口（经典坑），而且这里的调用频率本来就低。
-    // 超时 25 秒对齐 Swift 版「请求 20 秒 + 信号量兜底 25 秒」的外层上限。
+    // Reused statically: a fresh HttpClient per call exhausts ports (the classic trap), and the call rate
+    // here is low to begin with.
+    // The 25 second timeout lines up with the Swift version's outer limit of "20 seconds per request plus a
+    // 25 second semaphore backstop".
     private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(25) };
 
     public static async Task<StoredToken> PostAsync(
@@ -197,12 +204,13 @@ public static class OAuthClient
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
-            throw;   // 调用方主动取消，不是错误
+            throw;   // the caller cancelled deliberately, this is not an error
         }
         catch (OperationCanceledException)
         {
-            // HttpClient 超时也走 OperationCanceledException（.NET 的历史包袱），
-            // 靠 ct 有没有被触发来区分，不然会把超时当成用户取消吞掉。
+            // An HttpClient timeout also comes through as OperationCanceledException (.NET's historical
+            // baggage); we tell the two apart by whether ct was triggered, otherwise a timeout gets
+            // swallowed as a user cancellation.
             throw new OAuthException(OAuthErrorKind.Network, "请求超时");
         }
         catch (HttpRequestException e)
@@ -249,7 +257,7 @@ public static class OAuthClient
         };
     }
 
-    /// <summary>粘贴内容可能是 `code#state`、裸 code，或用户直接从地址栏复制的整条回调地址。</summary>
+    /// <summary>What gets pasted may be `code#state`, a bare code, or the whole callback URL copied straight out of the address bar.</summary>
     public static Task<StoredToken> ExchangeCodeAsync(string pasted, string verifier, CancellationToken ct)
     {
         var raw = (pasted ?? "").Trim();
@@ -268,7 +276,7 @@ public static class OAuthClient
             }
             else
             {
-                // Uri.Fragment 带着开头的 '#'，去掉才是 state 本身
+                // Uri.Fragment carries the leading '#'; strip it off and what's left is the state itself
                 var frag = uri.Fragment.TrimStart('#');
                 state = frag.Length > 0 ? frag : verifier;
             }
@@ -290,9 +298,10 @@ public static class OAuthClient
                 "没能从粘贴的内容里认出授权码。请复制授权页面上显示的那段授权码，或浏览器地址栏里的整条回调地址。");
         }
 
-        // 不再因 state 不符就直接拒绝：真正的安全绑定是 PKCE 的 code_verifier，
-        // 服务端会校验。这里只在明显不符时给出可操作的提示，仍然照常提交，
-        // 让服务端做最终判断——否则浏览器里留着的旧授权页会让人反复失败。
+        // No longer rejected outright just because state doesn't match: the real security binding is PKCE's
+        // code_verifier, which the server validates. Here we only give an actionable hint when there's an
+        // obvious mismatch, and submit as usual regardless, letting the server make the final call —
+        // otherwise an old authorisation page left open in the browser has people failing over and over.
         if (state != verifier) state = verifier;
 
         return PostAsync(new Dictionary<string, string>
@@ -314,12 +323,12 @@ public static class OAuthClient
             ["refresh_token"] = old.RefreshToken,
             ["client_id"] = OAuth.ClientId,
         }, ct).ConfigureAwait(false);
-        // 服务端不一定回新的 refresh_token；不接着用旧的就等于把续期能力丢了
+        // The server doesn't always send back a new refresh_token; not carrying the old one forward amounts to throwing away the ability to renew
         if (string.IsNullOrEmpty(fresh.RefreshToken)) fresh.RefreshToken = old.RefreshToken;
         return fresh;
     }
 
-    /// <summary>只解析 query 串，不引 System.Web：这里的值都要百分号解码。</summary>
+    /// <summary>Parses the query string only, without pulling in System.Web: every value here needs percent-decoding.</summary>
     private static Dictionary<string, string> ParseQuery(string query)
     {
         var result = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -330,53 +339,59 @@ public static class OAuthClient
             var val = eq < 0 ? "" : pair[(eq + 1)..];
             try
             {
-                // 只做百分号解码，不把 '+' 当空格：Swift 的 URLComponents 就是这么干的
-                // （RFC 3986 里 query 中的 '+' 是普通字符，只有 HTML 表单编码才当空格）。
-                // 别自作聪明改回去：授权码里真出现一个 '+' 时，转成空格就把码改坏了，
-                // 用户会得到一个永远「授权码无效」、还查不出原因的死局。
+                // Percent-decoding only, no treating '+' as a space: this is exactly what Swift's
+                // URLComponents does (in RFC 3986 a '+' inside a query is an ordinary character; only HTML
+                // form encoding treats it as a space).
+                // Don't get clever and change it back: when a '+' really does turn up in an authorisation
+                // code, converting it to a space corrupts the code, and the user ends up in a dead end where
+                // the code is forever "invalid" with no way of finding out why.
                 var k = Uri.UnescapeDataString(key);
-                // 重复键取第一个，和 Swift 的 items.first { $0.name == ... } 一致
+                // On a duplicate key take the first, matching Swift's items.first { $0.name == ... }
                 if (!result.ContainsKey(k)) result[k] = Uri.UnescapeDataString(val);
             }
             catch (UriFormatException)
             {
-                // 粘错内容导致的畸形转义：这一项跳过，让上层报「认不出授权码」
+                // Malformed escaping caused by pasting the wrong thing: skip this item and let the layer above report that no authorisation code was recognised
             }
         }
         return result;
     }
 }
 
-// MARK: - 令牌存储
+// MARK: - Token storage
 
 public enum TokenLoadStatus
 {
     Ok,
-    None,    // 确认没有这一项
-    Failed,  // 读取被拒/解密异常，重试可能成功
+    None,    // confirmed that there is no such item
+    Failed,  // the read was refused / decryption blew up; a retry may succeed
 }
 
 public readonly record struct TokenLoadOutcome(TokenLoadStatus Status, StoredToken? Token);
 
 /// <summary>
-/// 令牌落地。Windows 上用 DPAPI 加密后写 %LOCALAPPDATA%\Sundial\credentials.dat，
-/// 其它平台（Mac 上跑测试）写明文 JSON + 0600 权限位。
+/// Getting the token onto disk. On Windows it is encrypted with DPAPI and written to
+/// %LOCALAPPDATA%\Sundial\credentials.dat; on other platforms (running tests on a Mac) it is plain JSON
+/// plus 0600 permission bits.
 /// </summary>
 public static class TokenStore
 {
-    // DPAPI 用 CurrentUser 作用域：只有当前 Windows 账户能解开。
+    // DPAPI with the CurrentUser scope: only the current Windows account can unlock it.
     //
-    // macOS 版的教训必须记住：那边一开始把令牌放钥匙串，钥匙串 ACL 认代码签名，
-    // 每次重新编译签名都变，于是 App 读不了自己写的令牌（错误 260/EPERM），
-    // 表现为用户莫名其妙要重新登录。DPAPI 的 CurrentUser 作用域不绑定可执行文件，
-    // 重新编译、换路径、升级版本都照样解得开——所以除了下面这段固定 entropy 之外，
-    // 不要再加任何形式的绑定（别用 LocalMachine，也别把路径/版本号掺进 entropy）。
+    // The lesson from the macOS version must not be forgotten: over there the token started out in the
+    // keychain, keychain ACLs go by the code signature, and the signature changes with every rebuild — so
+    // the app couldn't read the token it had written itself (error 260/EPERM), which showed up as users
+    // being inexplicably asked to log in again. DPAPI's CurrentUser scope is not tied to the executable:
+    // rebuild it, move it, upgrade the version and it still decrypts — so apart from the fixed entropy
+    // below, do not add any further form of binding (don't use LocalMachine, and don't mix the path or the
+    // version number into the entropy).
     //
-    // entropy 只是做域隔离，不是密钥，明文写在这里没问题；但它一旦改动，
-    // 所有已登录用户的令牌都会解不开、被迫重新登录，所以永远不要动这个常量。
+    // The entropy is only there for domain separation, it isn't a key, so having it in plain sight here is
+    // fine; but change it just once and every logged-in user's token stops decrypting and they are forced to
+    // log in again, so never touch this constant.
     private static readonly byte[] Entropy = "Sundial.credentials.v1"u8.ToArray();
 
-    /// <summary>数据目录。Windows: %LOCALAPPDATA%\Sundial；其它: ~/.local/share/Sundial。</summary>
+    /// <summary>The data directory. Windows: %LOCALAPPDATA%\Sundial; elsewhere: ~/.local/share/Sundial.</summary>
     public static string DirectoryPath
     {
         get
@@ -387,7 +402,7 @@ public static class TokenStore
                     Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                     "Sundial");
             }
-            // 非 Windows 显式拼 ~/.local/share，不依赖 SpecialFolder 在各平台上的映射差异
+            // Off Windows we spell out ~/.local/share explicitly rather than relying on how SpecialFolder maps differently from platform to platform
             return Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
                 ".local", "share", "Sundial");
@@ -397,12 +412,13 @@ public static class TokenStore
     public static string FilePath => Path.Combine(
         DirectoryPath, OperatingSystem.IsWindows() ? "credentials.dat" : "credentials.json");
 
-    /// <summary>「用户主动退出」的标记。Swift 版存在 UserDefaults，这里没有等价物，用一个空文件代替。</summary>
+    /// <summary>The "the user signed out deliberately" marker. The Swift version keeps it in UserDefaults; there's no equivalent here, so an empty file stands in for it.</summary>
     private static string SignedOutFlagPath => Path.Combine(DirectoryPath, "signedout.flag");
 
     /// <summary>
-    /// macOS 上 Swift 版的存放位置。只读、不搬不删——那是另一个程序的数据，
-    /// 在 Mac 上跑测试时能直接复用已有登录，省得每次都重走一遍 OAuth。
+    /// Where the Swift version keeps things on macOS. Read-only, never moved and never deleted — that is
+    /// another programme's data; it just means tests on a Mac can reuse an existing login instead of walking
+    /// through the whole OAuth flow every time.
     /// </summary>
     private static string? MacSwiftFilePath => OperatingSystem.IsMacOS()
         ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
@@ -416,8 +432,9 @@ public static class TokenStore
             var json = JsonSerializer.SerializeToUtf8Bytes(token);
             EnsureDirectory();
 
-            // 先写临时文件再改名：中途崩溃不会留下半截文件；
-            // 权限位也在改名前就设好，避免出现「文件已存在但还是 0644」的窗口期。
+            // Write a temporary file first and then rename it: a crash part-way through won't leave half a
+            // file behind; the permission bits are set before the rename as well, which avoids a window in
+            // which "the file already exists but is still 0644".
             var tmp = FilePath + ".tmp";
             if (OperatingSystem.IsWindows())
             {
@@ -436,8 +453,9 @@ public static class TokenStore
         }
         catch (Exception)
         {
-            // 存不下不是致命错误：本次运行内存里还有令牌，照常工作，
-            // 只是下次启动要重新登录。调用方据返回值提示用户。
+            // Failing to save isn't fatal: the token is still in memory for this run and everything carries
+            // on working, it's just that the next start will need a fresh login. The caller uses the return
+            // value to tell the user.
             return false;
         }
     }
@@ -453,8 +471,9 @@ public static class TokenStore
             }
             else
             {
-                // 借读要让位给「已退出」标记：否则测试时点了退出登录、重启又自动登回去，
-                // 排查半天才发现是 Swift 版的文件在起作用。
+                // Borrowing has to give way to the "signed out" marker: otherwise, while testing, you click
+                // sign out, restart, and get logged straight back in again — it took ages of digging to
+                // realise it was the Swift version's file doing it.
                 var legacy = UserSignedOut ? null : MacSwiftFilePath;
                 if (legacy is not null && File.Exists(legacy))
                 {
@@ -468,7 +487,7 @@ public static class TokenStore
         }
         catch (IOException)
         {
-            return new TokenLoadOutcome(TokenLoadStatus.Failed, null);   // 占用/瞬时 IO 错，值得重试
+            return new TokenLoadOutcome(TokenLoadStatus.Failed, null);   // file in use / transient IO error, worth retrying
         }
         catch (UnauthorizedAccessException)
         {
@@ -484,14 +503,15 @@ public static class TokenStore
             }
             catch (CryptographicException)
             {
-                // 换了 Windows 账户、拷贝了别人的文件，或者文件坏了。
-                // 归为 Failed 而不是 None：不确定的事不要当成「用户没登录」的结论。
+                // A different Windows account, someone else's file copied over, or the file is corrupt.
+                // Classed as Failed rather than None: don't turn something uncertain into the conclusion
+                // that "the user isn't logged in".
                 return new TokenLoadOutcome(TokenLoadStatus.Failed, null);
             }
         }
 
         var token = Deserialize(raw);
-        // 文件坏了：重新登录即可修复，所以是 None 不是 Failed
+        // The file is corrupt: logging in again fixes it, so this is None and not Failed
         return token is null
             ? new TokenLoadOutcome(TokenLoadStatus.None, null)
             : new TokenLoadOutcome(TokenLoadStatus.Ok, token);
@@ -502,7 +522,7 @@ public static class TokenStore
         try { File.Delete(FilePath); } catch (IOException) { } catch (UnauthorizedAccessException) { }
     }
 
-    /// <summary>用户主动退出的标记：置位后不再回退到 CLI 凭证。</summary>
+    /// <summary>The marker for the user having signed out deliberately: once it is set we no longer fall back to the CLI credentials.</summary>
     public static bool UserSignedOut
     {
         get
@@ -545,7 +565,7 @@ public static class TokenStore
         if (!OperatingSystem.IsWindows()) TrySetOwnerOnly(DirectoryPath, isDirectory: true);
     }
 
-    /// <summary>非 Windows 的保护手段就是权限位：文件 0600、目录 0700。</summary>
+    /// <summary>Off Windows the only protection is the permission bits: 0600 for files, 0700 for directories.</summary>
     private static void TrySetOwnerOnly(string path, bool isDirectory = false)
     {
         if (OperatingSystem.IsWindows()) return;
@@ -558,18 +578,19 @@ public static class TokenStore
         }
         catch (Exception)
         {
-            // 设不上权限位不阻断保存（比如目录在不支持 chmod 的挂载点上）。
-            // 令牌能用比权限完美更重要，Windows 正式版本来也走不到这里。
+            // Failing to set the permission bits doesn't block the save (for instance when the directory
+            // sits on a mount point that doesn't support chmod). A usable token matters more than perfect
+            // permissions, and the proper Windows build never gets here in the first place.
         }
     }
 }
 
-// MARK: - Claude Code CLI 凭证（回退来源）
+// MARK: - Claude Code CLI credentials (the fallback source)
 
-/// <summary>读 Claude Code CLI 自己写的凭证文件。</summary>
+/// <summary>Reads the credential file that Claude Code CLI writes for itself.</summary>
 public static class CredentialsFile
 {
-    /// <summary>&lt;用户目录&gt;\.claude\.credentials.json —— 这个写法在 Windows 和 macOS 上都成立。</summary>
+    /// <summary>&lt;home directory&gt;\.claude\.credentials.json — this layout holds on both Windows and macOS.</summary>
     public static string FilePath => System.IO.Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
         ".claude", ".credentials.json");
@@ -611,7 +632,7 @@ public static class CredentialsFile
 
             if (string.IsNullOrEmpty(token))
             {
-                // 条目存在但只有 mcpOAuth（Claude Code 把登录令牌存在别处，不在这个文件里）
+                // The entry exists but holds only mcpOAuth (Claude Code keeps the login token elsewhere, not in this file)
                 if (!hasOauth && root.TryGetProperty("mcpOAuth", out _))
                     throw new CredException(CredErrorKind.TokenElsewhere);
                 throw new CredException(CredErrorKind.NoOauth);
@@ -621,7 +642,7 @@ public static class CredentialsFile
                 && exp.ValueKind == JsonValueKind.Number
                 && exp.TryGetDouble(out var expiresAt))
             {
-                // expiresAt 为毫秒时间戳；留 60 秒余量
+                // expiresAt is a millisecond timestamp; leave 60 seconds of slack
                 if (expiresAt / 1000.0 < DateTimeOffset.UtcNow.ToUnixTimeSeconds() + 60)
                     throw new CredException(CredErrorKind.Expired);
             }
@@ -635,52 +656,56 @@ public static class CredentialsFile
     }
 }
 
-// MARK: - 令牌来源（ITokenSource 实现）
+// MARK: - Token source (the ITokenSource implementation)
 
 /// <summary>
-/// 取一个可用的 access token：优先桌宠自己登录的，其次已有的 Claude Code CLI 凭证。
+/// Gets hold of a usable access token: the pet's own login first, then any existing Claude Code CLI credentials.
 /// </summary>
 /// <remarks>
-/// 接口只有「返回 null」这一个表达失败的通道，所以约定：
+/// The interface has only one channel for expressing failure — returning null — so the convention is:
 /// <list type="bullet">
-/// <item>返回 null = 确实没有可用凭证，请引导用户登录；具体原因看 <see cref="LastNoTokenReason"/>。</item>
-/// <item>抛 <see cref="OAuthException"/> = 续期过程中出的错。调用方必须看
-/// <see cref="OAuthException.IsCredentialRejection"/>：为真才是登录失效（该 Invalidate + 要求重新登录），
-/// 否则是网络/限流/5xx，稍后重试即可，千万别把令牌删了。</item>
+/// <item>returning null = there really is no usable credential, so lead the user through logging in; for the
+/// specific reason see <see cref="LastNoTokenReason"/>.</item>
+/// <item>throwing <see cref="OAuthException"/> = something went wrong during renewal. The caller must look at
+/// <see cref="OAuthException.IsCredentialRejection"/>: only when it is true has the login actually expired
+/// (that means Invalidate + asking the user to log in again); otherwise it is network trouble / rate
+/// limiting / 5xx, which just needs a retry later — whatever you do, don't delete the token.</item>
 /// </list>
-/// 令牌只在启动后读一次盘，之后走内存缓存，和 macOS 版一样避免反复触发系统层面的授权检查。
+/// The token is read from disk only once after start-up and served from an in-memory cache after that, which,
+/// as in the macOS version, avoids triggering system-level authorisation checks over and over.
 /// </remarks>
 public sealed class TokenSource : ITokenSource
 {
     private readonly object _lock = new();
     private StoredToken? _cached;
     private bool _didLoad;
-    private bool _storeBlocked;          // 上次读取失败，等用户手动刷新再试
-    private int _epoch;                  // 每次退出登录 +1，作废在途的刷新
+    private bool _storeBlocked;          // last read failed; wait for the user to refresh by hand before trying again
+    private int _epoch;                  // +1 on every sign-out, voiding any refresh still in flight
     private bool _lastResolveRefreshed;
     private CredErrorKind? _lastNoTokenReason;
 
-    /// <summary>每次退出登录都会变。用来判断一次在途的续期是否已经过期作废。</summary>
+    /// <summary>Changes on every sign-out. Used to work out whether a renewal still in flight has already been superseded and is void.</summary>
     public int TokenGeneration { get { lock (_lock) return _epoch; } }
 
-    /// <summary>本次 <see cref="ResolveAsync"/> 里是否刚续过期。紧跟 ResolveAsync 之后在同一线程读。</summary>
+    /// <summary>Whether this <see cref="ResolveAsync"/> has just renewed the token. Read on the same thread immediately after ResolveAsync.</summary>
     /// <remarks>
-    /// Swift 版是 resolveToken 返回值里的 justRefreshed，接口签名里没有它的位置，
-    /// 只好挂成属性。用途：401 时判断「本轮已经刷过就别再刷」，避免无限轮转。
-    /// 依赖上层保证同一时刻只有一个取数在跑（inFlight）。
+    /// In the Swift version this is justRefreshed inside resolveToken's return value; there is nowhere for it
+    /// in the interface signature here, so it has to hang off a property instead. What it's for: on a 401,
+    /// deciding "we already refreshed this round, so don't refresh again", which avoids spinning forever.
+    /// It relies on the layer above guaranteeing that only one fetch runs at any one time (inFlight).
     /// </remarks>
     public bool LastResolveRefreshed { get { lock (_lock) return _lastResolveRefreshed; } }
 
-    /// <summary>最近一次返回 null 的原因，供上层挑合适的提示文案。</summary>
+    /// <summary>Why null was returned most recently, so the layer above can pick suitable wording for the prompt.</summary>
     public CredErrorKind? LastNoTokenReason { get { lock (_lock) return _lastNoTokenReason; } }
 
-    /// <summary>主线程（菜单）用：只看内存缓存，绝不碰磁盘/解密，避免卡 UI。</summary>
+    /// <summary>For the main thread (the menu): looks only at the in-memory cache, never touches the disk or decryption, so the UI can't stall.</summary>
     public bool HasToken { get { lock (_lock) return _cached is not null; } }
 
-    /// <summary>登录成功后由 UI 线程写入。</summary>
+    /// <summary>Written by the UI thread after a successful login.</summary>
     public void AdoptToken(StoredToken t)
     {
-        TokenStore.UserSignedOut = false;   // 登录成功才解除「已退出」
+        TokenStore.UserSignedOut = false;   // only a successful login lifts the "signed out" state
         lock (_lock)
         {
             _cached = t;
@@ -690,7 +715,7 @@ public sealed class TokenSource : ITokenSource
         }
     }
 
-    /// <summary>内部失效（令牌被服务端否定）：清掉自己的令牌，但仍允许回退到 CLI 凭证。</summary>
+    /// <summary>Internal invalidation (the server rejected the token): drop our own token, but still allow falling back to the CLI credentials.</summary>
     public void Invalidate()
     {
         lock (_lock)
@@ -702,7 +727,7 @@ public sealed class TokenSource : ITokenSource
         TokenStore.Clear();
     }
 
-    /// <summary>用户主动退出：额外记住「已退出」，不再自动回退到 CLI 凭证。</summary>
+    /// <summary>The user signing out deliberately: additionally remembers the "signed out" state and no longer falls back to the CLI credentials automatically.</summary>
     public void SignOutByUser()
     {
         TokenStore.UserSignedOut = true;
@@ -710,8 +735,9 @@ public sealed class TokenSource : ITokenSource
     }
 
     /// <summary>
-    /// 手动刷新时调用：解除上次读取失败造成的封锁，下次 Resolve 会重新读盘。
-    /// 自动轮询不做这件事——读取失败往往会伴随系统弹窗/长时间阻塞，60 秒一次地重试是骚扰。
+    /// Called on a manual refresh: lifts the block left behind by the last failed read, so the next Resolve
+    /// goes back to the disk. Automatic polling does not do this — a failed read often comes with a system
+    /// dialogue or a long block, and retrying that once every 60 seconds is harassment.
     /// </summary>
     public void RetryBlockedRead()
     {
@@ -737,7 +763,7 @@ public sealed class TokenSource : ITokenSource
         {
             if (t.IsExpiring && t.RefreshToken.Length > 0)
             {
-                var renewed = await OAuthClient.RefreshAsync(t, ct).ConfigureAwait(false);  // 失败抛 OAuthException
+                var renewed = await OAuthClient.RefreshAsync(t, ct).ConfigureAwait(false);  // throws OAuthException on failure
                 if (CommitToken(renewed, epoch))
                 {
                     t = renewed;
@@ -745,10 +771,12 @@ public sealed class TokenSource : ITokenSource
                 }
                 else
                 {
-                    // 续期期间用户退出登录了，这份新令牌整单作废。
-                    // Swift 版此处抛 StaleSignOut 让调用方静默收尾；接口没有这个通道，
-                    // 于是按「自己没有令牌」继续往下走（主动退出的话下面会拦住，
-                    // 只是内部失效的话本来就允许回退到 CLI 凭证）。
+                    // The user signed out while the renewal was in flight, so this new token is void, the
+                    // whole lot of it.
+                    // The Swift version throws StaleSignOut here so the caller can wind things up quietly;
+                    // the interface has no such channel, so we carry on as though "we have no token of our
+                    // own" (a deliberate sign-out gets caught further down, and if it was only an internal
+                    // invalidation then falling back to the CLI credentials was allowed anyway).
                     t = null;
                 }
             }
@@ -762,7 +790,7 @@ public sealed class TokenSource : ITokenSource
         bool blocked;
         lock (_lock) blocked = _storeBlocked;
         if (blocked) return NoToken(CredErrorKind.StoreDenied);
-        if (TokenStore.UserSignedOut) return NoToken(CredErrorKind.NotLoggedIn);  // 主动退出后不回退到 CLI 凭证
+        if (TokenStore.UserSignedOut) return NoToken(CredErrorKind.NotLoggedIn);  // after a deliberate sign-out we don't fall back to the CLI credentials
 
         try
         {
@@ -772,14 +800,16 @@ public sealed class TokenSource : ITokenSource
         }
         catch (CredException e)
         {
-            // CLI 凭证不存在／无 claudeAiOauth／已过期，都归结为「请登录」
+            // No CLI credentials / no claudeAiOauth / already expired — they all come down to "please log in"
             return NoToken(e.Kind);
         }
     }
 
     /// <summary>
-    /// 401 之后主动续一次期。返回 false = 没有可续的令牌，或续完发现已被退出登录（该整单丢弃）。
-    /// 网络/服务端错误照样抛 <see cref="OAuthException"/>，由调用方按 IsCredentialRejection 分流。
+    /// Renew once, off our own bat, after a 401. Returns false = there is no token to renew, or the renewal
+    /// finished only to find the user had signed out (in which case the whole lot should be thrown away).
+    /// Network and server errors still throw <see cref="OAuthException"/>, which the caller routes by
+    /// IsCredentialRejection.
     /// </summary>
     public async Task<bool> TryRenewAsync(CancellationToken ct)
     {
@@ -802,7 +832,7 @@ public sealed class TokenSource : ITokenSource
         return null;
     }
 
-    /// <summary>后台线程用：首次会读盘并解密，读取期间不持锁。</summary>
+    /// <summary>For background threads: the first call reads from disk and decrypts, and holds no lock while it does so.</summary>
     private StoredToken? CurrentToken()
     {
         bool alreadyLoaded;
@@ -814,7 +844,7 @@ public sealed class TokenSource : ITokenSource
         }
         if (alreadyLoaded) return cached;
 
-        var outcome = TokenStore.Load();   // 不持锁，别让磁盘 IO 卡住 HasToken 这类 UI 查询
+        var outcome = TokenStore.Load();   // no lock held; don't let disk IO stall UI queries such as HasToken
         lock (_lock)
         {
             if (!_didLoad)
@@ -828,7 +858,7 @@ public sealed class TokenSource : ITokenSource
                         _cached = null; _didLoad = true; _storeBlocked = false;
                         break;
                     case TokenLoadStatus.Failed:
-                        // 不把失败当成结论（不代表用户没登录），但也别让 60 秒轮询反复重试
+                        // Don't treat a failure as a conclusion (it doesn't mean the user isn't logged in), but don't let the 60 second polling retry it over and over either
                         _cached = null; _didLoad = true; _storeBlocked = true;
                         break;
                 }
@@ -837,7 +867,7 @@ public sealed class TokenSource : ITokenSource
         }
     }
 
-    /// <summary>唯一允许写令牌的入口：纪元不符（期间用户退出登录了）就整单丢弃。</summary>
+    /// <summary>The only entry point allowed to write the token: if the epoch doesn't match (the user signed out in the meantime) the whole lot is thrown away.</summary>
     private bool CommitToken(StoredToken t, int epoch)
     {
         lock (_lock)
@@ -849,7 +879,7 @@ public sealed class TokenSource : ITokenSource
         TokenStore.Save(t);
         if (TokenGeneration != epoch)
         {
-            Invalidate();   // 落盘期间又退了，撤销
+            Invalidate();   // they signed out again while it was being written to disk, so undo it
             return false;
         }
         return true;

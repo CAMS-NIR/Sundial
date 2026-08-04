@@ -6,7 +6,7 @@ using Avalonia.Platform;
 using Sundial.App;
 using Sundial.Core;
 
-// 无显示器渲染：把 PetRenderer 画进位图存成 PNG
+// Headless rendering: draw PetRenderer into a bitmap and save it out as a PNG
 AppBuilder.Configure<Application>()
     .UseSkia()
     .UseHeadless(new AvaloniaHeadlessPlatformOptions { UseHeadlessDrawing = false })

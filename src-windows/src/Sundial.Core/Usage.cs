@@ -1,10 +1,12 @@
-// Sundial (Windows 版) — 用量接口：解析 + 取数调度
+// Sundial (Windows edition) — usage API: parsing + fetch scheduling
 //
-// 逐函数移植自 macOS 版 Usage.swift。原文里标注了实测结论和 bug 成因的注释一律原样保留，
-// 那些是踩坑换来的，比代码本身重要。
+// Ported function by function from the macOS version's Usage.swift. Every comment in the original
+// that records a measured finding or the cause of a bug has been kept exactly as it was; those were
+// earned the hard way and matter more than the code itself.
 //
-// 与 macOS 版的结构差异（详见各处注释）：令牌的读取／刷新／落盘全部收进 ITokenSource，
-// 由 Auth 模块实现，本文件不碰钥匙串/DPAPI，也不自己发 OAuth 请求。
+// Structural differences from the macOS version (see the individual comments): reading / refreshing /
+// persisting the token are all gathered into ITokenSource, implemented by the Auth module. This file
+// never touches the Keychain/DPAPI, and never fires an OAuth request of its own.
 
 using System.Globalization;
 using System.Text.Json;
@@ -12,77 +14,94 @@ using System.Text.Json;
 namespace Sundial.Core;
 
 /// <summary>
-/// 令牌来源。真正的实现在 Auth 模块（TokenStore / OAuthClient），这里只声明契约。
-/// macOS 版把「读钥匙串 / 判断过期 / 刷新 / 回退到 CLI 凭证 / 记住用户主动退出」都写在
-/// UsageFetcher 里，Windows 版把这些搬去 Auth 模块，UsageFetcher 只管取数与调度。
+/// Token source. The real implementation lives in the Auth module (TokenStore / OAuthClient); this
+/// only declares the contract.
+/// The macOS version wrote "read the Keychain / work out whether it has expired / refresh / fall back
+/// to the CLI credentials / remember that the user signed out deliberately" all inside UsageFetcher.
+/// The Windows version moves that lot into the Auth module, leaving UsageFetcher with nothing but
+/// fetching and scheduling.
 /// </summary>
 public interface ITokenSource
 {
     /// <summary>
-    /// 返回可用的 access token；没有可用令牌时返回 null（对应 macOS 版的「请登录」分支）。
-    /// IsOwn=true 表示是本程序自己登录拿的令牌，false 表示回退用了 Claude Code CLI 的凭证——
-    /// 这个区分很要紧：别人的凭证轮不到我们作废。
+    /// Returns a usable access token; returns null when there is no usable token (this is the macOS
+    /// version's "please sign in" branch).
+    /// IsOwn=true means the token came from this program's own sign-in, false means we fell back to
+    /// the Claude Code CLI's credentials — and that distinction matters: somebody else's credentials
+    /// are not ours to invalidate.
     /// </summary>
     Task<(string Token, string? Tier, bool IsOwn)?> ResolveAsync(CancellationToken ct);
 
-    /// <summary>凭证被服务端拒绝时调用。只有服务端明确否定（400/401）才允许走到这里。</summary>
+    /// <summary>Called when the server rejects the credentials. Only an explicit refusal from the server (400/401) is allowed to reach here.</summary>
     void Invalidate();
 
-    // 下面四个成员都带默认实现：接口是加法，老的实现（含测试里的桩）不改也能编过，
-    // 只是退回到「没有这些能力」的降级行为。Auth 模块的 TokenSource 全都提供了。
+    // The four members below all come with a default implementation: the interface only ever grows, so
+    // older implementations (including the stubs in the tests) still compile untouched — they simply
+    // drop back to the degraded "none of these abilities" behaviour. The Auth module's TokenSource
+    // provides every one of them.
 
     /// <summary>
-    /// 刚才那次 <see cref="ResolveAsync"/> 里是否已经续过一次期。
-    /// 对应 macOS 版 resolveToken 返回值里的 justRefreshed：401 时若本轮刚换过令牌，
-    /// 说明这份凭证是真的死了，别再刷一次空转，直接判定登录失效。
+    /// Whether that last <see cref="ResolveAsync"/> call already renewed the token once.
+    /// This is justRefreshed from the macOS version's resolveToken return value: on a 401, if the
+    /// token was only just swapped this round, the credentials really are dead — don't spin through
+    /// another pointless refresh, declare the sign-in invalid straight away.
     /// </summary>
     bool LastResolveRefreshed => false;
 
     /// <summary>
-    /// 最近一次 <see cref="ResolveAsync"/> 返回 null 的原因，用来挑提示文案；
-    /// null = 不区分，一律按「未登录」处理。对应 macOS 版 resolveToken 抛的 CredError。
+    /// Why the most recent <see cref="ResolveAsync"/> returned null, used to pick the wording shown to
+    /// the user; null = no distinction, treat everything as "not signed in". This is the CredError
+    /// thrown by the macOS version's resolveToken.
     /// </summary>
     CredErrorKind? LastNoTokenReason => null;
 
     /// <summary>
-    /// 收到 401 后主动续一次期。true = 已换上新令牌，false = 没有可续的令牌
-    /// （或续期途中用户退出了登录，这份新令牌整单作废）。
-    /// 网络／服务端故障要照常抛异常，由调用方按「是不是凭证被否定」分流——
-    /// 吞掉异常返回 false 会让一次断网变成永久登出。
+    /// Renew the token once after a 401. true = a new token is now in place, false = there was no
+    /// token to renew (or the user signed out part-way through the renewal, in which case the whole
+    /// new token is written off).
+    /// Network / server failures must still throw as usual, so the caller can sort them by "were the
+    /// credentials actually refused" — swallowing the exception and returning false would turn a
+    /// single dropped connection into a permanent sign-out.
     /// </summary>
     Task<bool> TryRenewAsync(CancellationToken ct) => Task.FromResult(false);
 
     /// <summary>
-    /// 用户手动刷新时调用：解除「上次读取凭证存储失败」造成的封锁。
-    /// macOS 版这条规则是为钥匙串授权弹窗定的——自动轮询不重试，免得每 60 秒弹一次框；
-    /// Windows 上 DPAPI 解密失败同理（可能伴随长时间阻塞），所以规则原样保留。
+    /// Called when the user refreshes by hand: lifts the block left behind by "reading the credential
+    /// store failed last time".
+    /// On macOS this rule was written for the Keychain authorisation prompt — the automatic poll must
+    /// not retry, or a dialog would pop up every 60 seconds; on Windows a failed DPAPI decryption is
+    /// the same story (and may come with a long block), so the rule is kept exactly as it was.
     /// </summary>
     void RetryBlockedRead() { }
 }
 
 /// <summary>
-/// 别的模块抛出的异常若实现了这个接口，UsageFetcher 就能把「服务端明确否定凭证」
-/// （RFC 6749 §5.2 invalid_grant / 客户端认证失败，即 400、401）与网络故障区分开，
-/// 对应 macOS 版 OAuthError.isCredentialRejection。
-/// 不实现也能跑：所有异常都按可重试的瞬时故障处理。方向必须是这一边——
-/// 把网络故障误判成凭证失效，会把用户永久登出；多重试几次只是多等一会儿。
+/// If an exception thrown by another module implements this interface, UsageFetcher can tell "the
+/// server has explicitly refused the credentials" (RFC 6749 §5.2 invalid_grant / client
+/// authentication failure, i.e. 400 and 401) apart from a network failure; this is
+/// OAuthError.isCredentialRejection in the macOS version.
+/// It runs fine without it: every exception is then treated as a retryable transient failure. The
+/// bias has to lean this way — mistaking a network failure for expired credentials signs the user out
+/// permanently, whereas a few extra retries only mean waiting a bit longer.
 /// </summary>
 /// <remarks>
-/// Auth 模块的 OAuthException 只有同名属性、并没有声明实现这个接口，
-/// C# 又不做结构化匹配，所以 UsageFetcher 里必须额外按具体类型认一次它，
-/// 否则「登录已失效」这条分支永远走不到，refresh token 真死了也只会一直显示
-/// 「网络暂时不可用」——这正是 <see cref="UsageFetcher"/> 里那段类型判断存在的理由。
+/// The Auth module's OAuthException merely has a property of the same name; it never declares that it
+/// implements this interface, and C# does not do structural matching, so UsageFetcher has to
+/// recognise it a second time by its concrete type. Otherwise the "sign-in has expired" branch is
+/// never reached, and even when the refresh token really is dead the display just keeps saying
+/// "network temporarily unavailable" — which is precisely why that type check exists inside
+/// <see cref="UsageFetcher"/>.
 /// </remarks>
 public interface ICredentialRejection
 {
     bool IsCredentialRejection { get; }
 }
 
-// MARK: - 用量接口解析
+// MARK: - Usage API parsing
 
 public static class Usage
 {
-    /// <summary>接口给的键名 → 界面标签 + 排序优先级；返回 null 表示这条不展示。</summary>
+    /// <summary>Key name as given by the API → UI label + sort priority; returning null means this one is not displayed.</summary>
     public static (string Label, int Priority)? LabelFor(string key)
     {
         var k = key.ToLowerInvariant();
@@ -94,7 +113,7 @@ public static class Usage
         if (k.Contains("sonnet")) return ("每周 · Sonnet", 4);
         if (k.Contains("cowork")) return ("每周 · Cowork", 5);
         if (k.Contains("routine")) return ("每周 · Routines", 6);
-        if (k.Contains("extra") || k.Contains("overage")) return null; // 额外付费用量，暂不展示
+        if (k.Contains("extra") || k.Contains("overage")) return null; // extra paid-for usage, not displayed for now
         if (k.Contains("seven_day"))
         {
             var name = Capitalized(k.Replace("seven_day_", ""));
@@ -104,16 +123,19 @@ public static class Usage
     }
 
     /// <summary>
-    /// 对应 Swift 的 String.capitalized：每个「词」首字母大写、其余小写。
-    /// 不用 TextInfo.ToTitleCase——它的分词规则依赖 ICU，Windows 上可能开着
-    /// InvariantGlobalization，行为会变；自己写死才确定。
+    /// The counterpart of Swift's String.capitalized: the first letter of every "word" upper-case, the
+    /// rest lower-case.
+    /// Not TextInfo.ToTitleCase — its word-splitting rules depend on ICU, and Windows may be running
+    /// with InvariantGlobalization switched on, which changes the behaviour; hard-coding it ourselves
+    /// is the only way to be sure.
     /// </summary>
     /// <remarks>
-    /// 分词规则是在 macOS 上跑 Foundation 实测出来的，不是按空格切：只要前一个字符
-    /// 不是字母就算新词的开头。实测样本——
-    /// "foo_bar"→"Foo_Bar"、"opus-4-5"→"Opus-4-5"、"opus4x"→"Opus4X"、
-    /// "20x_max"→"20X_Max"、"a1b_c2d"→"A1B_C2D"、"a  b"→"A  B"。
-    /// 按空格切会得到 "Foo_bar"、"Opus4x"，和原版不一致。
+    /// The word-splitting rule was measured by running Foundation on macOS, and it does not split on
+    /// spaces: any character whose predecessor is not a letter counts as the start of a new word.
+    /// Measured samples —
+    /// "foo_bar"→"Foo_Bar", "opus-4-5"→"Opus-4-5", "opus4x"→"Opus4X",
+    /// "20x_max"→"20X_Max", "a1b_c2d"→"A1B_C2D", "a  b"→"A  B".
+    /// Splitting on spaces would give "Foo_bar" and "Opus4x", which does not match the original.
     /// </remarks>
     private static string Capitalized(string s)
     {
@@ -126,7 +148,7 @@ public static class Usage
         return new string(buf);
     }
 
-    /// <summary>重置时间：ISO8601 字符串，或秒/毫秒时间戳。</summary>
+    /// <summary>Reset time: an ISO8601 string, or a timestamp in seconds/milliseconds.</summary>
     public static DateTimeOffset? ParseResetDate(JsonElement v)
     {
         if (v.ValueKind == JsonValueKind.String)
@@ -141,10 +163,11 @@ public static class Usage
     public static DateTimeOffset? ParseResetDate(string s)
     {
         if (s.Length == 0) return null;
-        // 原文用了两个 ISO8601DateFormatter（先试带小数秒、再试不带）；
-        // .NET 的 TryParse 两种写法都吃，一次就够。
-        // AssumeUniversal：原文的 formatter 遇到没带时区的串会直接失败，
-        // 这里选择当成 UTC 而不是本地时间——服务端给的就是 UTC，猜本地会偏好几个小时。
+        // The original used two ISO8601DateFormatters (first trying it with fractional seconds, then
+        // without); .NET's TryParse swallows both forms, so one go is enough.
+        // AssumeUniversal: the original's formatter simply failed on a string with no time zone;
+        // here we choose to read it as UTC rather than local time — the server hands out UTC, and
+        // guessing local would be off by several hours.
         if (DateTimeOffset.TryParse(s, CultureInfo.InvariantCulture,
                 DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var d))
         {
@@ -155,16 +178,16 @@ public static class Usage
 
     private static DateTimeOffset? FromEpoch(double n)
     {
-        // 兼容秒 / 毫秒时间戳
+        // Accept timestamps in either seconds or milliseconds
         var secs = n > 4_000_000_000 ? n / 1000 : n;
-        // 脏数据别让 AddSeconds 抛越界异常，直接当没有重置时间
+        // Don't let dirty data make AddSeconds throw an out-of-range exception; just treat it as having no reset time
         if (!double.IsFinite(secs) || secs < -62_135_596_800 || secs > 253_402_300_799) return null;
         return DateTimeOffset.UnixEpoch.AddSeconds(secs);
     }
 
     private static readonly string[] WeekdayZh = { "周日", "周一", "周二", "周三", "周四", "周五", "周六" };
 
-    /// <summary>限额行右侧用的紧凑重置时间："4h32m" / "周四 14:00"</summary>
+    /// <summary>The compact reset time shown on the right-hand side of a limit row: "4h32m" / "周四 14:00" (i.e. "Thu 14:00")</summary>
     public static string CompactReset(DateTimeOffset? d)
     {
         if (d is null) return "";
@@ -175,16 +198,18 @@ public static class Usage
             int total = (int)secs, h = total / 3600, m = total % 3600 / 60;
             return h > 0 ? $"{h}h{m}m" : $"{m}m";
         }
-        // 原文是 DateFormatter + zh_CN 的 "EEE HH:mm"。这里写死中文星期，
-        // 免得依赖 ICU：Windows 上可能开着 InvariantGlobalization，那时 zh-CN 会退化成英文
+        // The original was a DateFormatter with zh_CN and "EEE HH:mm". Here the Chinese weekday names
+        // are hard-coded to avoid depending on ICU: Windows may be running with InvariantGlobalization
+        // switched on, and then zh-CN degrades to English
         var local = d.Value.ToLocalTime();
         return $"{WeekdayZh[(int)local.DayOfWeek]} {local.Hour:00}:{local.Minute:00}";
     }
 
     public static string PrettyTier(string? raw)
     {
-        // 先落成非空 string 再往下走：可空引用类型的流分析进不了 lambda，
-        // 留着 string? 会在下面那个闭包里报 CS8602
+        // Pin it down to a non-null string before going any further: the nullable-reference-type flow
+        // analysis cannot get inside a lambda, so leaving it as string? makes the closure below
+        // report CS8602
         if (string.IsNullOrEmpty(raw)) return "";
         var t = raw.ToLowerInvariant();
         var mult = Multipliers.FirstOrDefault(m => t.Contains(m));
@@ -196,7 +221,7 @@ public static class Usage
         return raw;
     }
 
-    // "20x" 排在最前：先匹配到长的那个，免得被短的截胡
+    // "20x" comes first: match the longer one before the shorter one can steal the hit
     private static readonly string[] Multipliers = { "20x", "5x", "2x" };
     private static readonly string[] UtilFields = { "utilization", "percent" };
     private static readonly string[] TierKeys =
@@ -210,10 +235,10 @@ public static class Usage
             using var doc = JsonDocument.Parse(data);
             return ParseRoot(doc.RootElement);
         }
-        catch (JsonException) { return null; }   // 对应 Swift 的 try?
+        catch (JsonException) { return null; }   // the counterpart of Swift's try?
     }
 
-    /// <summary>字符串入口，方便测试直接喂样本 JSON。</summary>
+    /// <summary>String entry point, so tests can feed in sample JSON directly.</summary>
     public static (List<UsageRow> Rows, string Tier)? ParseUsage(string json)
     {
         try
@@ -224,7 +249,7 @@ public static class Usage
         catch (JsonException) { return null; }
     }
 
-    // 私有：JsonElement 的生命周期绑在 JsonDocument 上，不让它漏到外面去
+    // Private: a JsonElement's lifetime is tied to its JsonDocument, so don't let it leak outside
     private static (List<UsageRow> Rows, string Tier)? ParseRoot(JsonElement root)
     {
         if (root.ValueKind != JsonValueKind.Object) return null;
@@ -235,8 +260,9 @@ public static class Usage
         {
             var mapped = LabelFor(key);
             if (mapped is null) return;
-            // 顶层对象用 utilization；limits 数组用 percent。两套字段名都得认，
-            // 只认一套的话换个接口版本就整片空白
+            // Top-level objects use utilization; the limits array uses percent. Both sets of field
+            // names have to be recognised — recognise only one and a change of API version leaves the
+            // whole panel blank
             double? util = null;
             foreach (var f in UtilFields)
             {
@@ -255,8 +281,9 @@ public static class Usage
                 reset = ParseResetDate(r);
             }
 
-            // 不夹到 100：超限时就该看见「106%」，夹住只会显示成正好用完，
-            // 反而看不出已经超了。上界 999 只是防脏数据把版面撑破
+            // Not clamped to 100: when you are over the limit you should see "106%"; clamping would
+            // only show it as exactly used up, which hides the fact that you have already gone over.
+            // The upper bound of 999 is purely to stop dirty data from bursting the layout
             rows.Add(new UsageRow(
                 mapped.Value.Label,
                 (int)Math.Round(Math.Clamp(u2, 0, 999), MidpointRounding.AwayFromZero),
@@ -264,9 +291,11 @@ public static class Usage
                 mapped.Value.Priority));
         }
 
-        // 顶层键按名字排序后再遍历：原文里 Swift 字典无序，撞名时若不定序，
-        // 同一标签取到哪一条会随机变化。System.Text.Json 虽然按文档顺序枚举（不会随机），
-        // 但那顺序是服务端给的，排序照样必要——否则服务端调一下字段顺序，显示的数就变了
+        // Sort the top-level keys by name before iterating: Swift dictionaries in the original are
+        // unordered, so without a fixed order, which entry a colliding label picks up would vary at
+        // random. System.Text.Json does enumerate in document order (nothing random about it), but
+        // that order comes from the server, so the sort is needed all the same — otherwise the server
+        // reshuffles its fields and the number on screen changes
         foreach (var p in root.EnumerateObject()
                      .Where(p => p.Value.ValueKind == JsonValueKind.Object)
                      .OrderBy(p => p.Name, StringComparer.Ordinal))
@@ -274,7 +303,7 @@ public static class Usage
             Consider(p.Name, p.Value);
         }
 
-        // limits 数组：用 kind + scope.model.display_name 拼出名字
+        // The limits array: build the name out of kind + scope.model.display_name
         if (root.TryGetProperty("limits", out var limits) && limits.ValueKind == JsonValueKind.Array)
         {
             foreach (var item in limits.EnumerateArray())
@@ -286,22 +315,24 @@ public static class Usage
                     && scope.TryGetProperty("model", out var model) && model.ValueKind == JsonValueKind.Object)
                 {
                     var name = Str(model, "display_name");
-                    if (!string.IsNullOrEmpty(name)) key = "seven_day_" + name;   // 交给 LabelFor 归类
+                    if (!string.IsNullOrEmpty(name)) key = "seven_day_" + name;   // let LabelFor classify it
                 }
-                // 原文这里还传了个 activeFlag（is_active），但 consider 根本没用它，这里就不带了
+                // The original also passed an activeFlag (is_active) here, but consider never used it, so it is left out
                 Consider(key, item);
             }
         }
 
-        // 去重（同名保留先出现的），按优先级排序。
-        // OrderBy 是稳定排序：同优先级（比如 Fable / Mythos 都是 2）保持先来后到，
-        // 不会像 Swift 的不稳定排序那样随机换位
+        // De-duplicate (on a name collision keep the one that appeared first), then sort by priority.
+        // OrderBy is a stable sort: entries on the same priority (Fable / Mythos are both 2, say) keep
+        // their first-come order and won't swap places at random the way Swift's unstable sort does
         var seen = new HashSet<string>(StringComparer.Ordinal);
         rows = rows.Where(r => seen.Add(r.Label)).OrderBy(r => r.Priority).ToList();
         if (rows.Count > 5) rows = rows.Take(5).ToList();
 
-        // 套餐名：原先只认死 rate_limit_tier 这一个键，而接口早就不返回它了，
-        // 徽章其实一直是空的也没人发现。改成认几个常见写法，接口换名字还能接得住
+        // Plan name: this used to recognise nothing but the single key rate_limit_tier, and the API
+        // had long since stopped returning it — the badge had in fact been empty the whole time and
+        // nobody noticed. Now it recognises several of the common spellings, so it can still catch the
+        // value if the API renames the field
         string? rawTier = null;
         foreach (var k in TierKeys)
         {
@@ -310,9 +341,9 @@ public static class Usage
             {
                 var s = e.GetString();
                 if (!string.IsNullOrEmpty(s)) { rawTier = s; break; }
-                continue;                       // 空串不算命中，接着试下一个键
+                continue;                       // an empty string doesn't count as a hit, carry on to the next key
             }
-            if (e.ValueKind == JsonValueKind.Object)   // 也接受包了一层的写法
+            if (e.ValueKind == JsonValueKind.Object)   // the wrapped-in-one-more-level form is accepted too
             {
                 foreach (var f in TierNestedFields)
                 {
@@ -326,25 +357,27 @@ public static class Usage
         return (rows, PrettyTier(rawTier));
     }
 
-    /// <summary>取字符串字段；不存在或不是字符串返回 null。空串照样返回空串——
-    /// 对应 Swift 的 as? String，?? 只在 nil 时才落到下一个候选键。</summary>
+    /// <summary>Fetch a string field; returns null when it is absent or not a string. An empty string
+    /// is still returned as an empty string — the counterpart of Swift's as? String, where ?? only
+    /// drops through to the next candidate key on nil.</summary>
     private static string? Str(JsonElement o, string name)
         => o.TryGetProperty(name, out var e) && e.ValueKind == JsonValueKind.String ? e.GetString() : null;
 }
 
-// MARK: - 取数调度
+// MARK: - Fetch scheduling
 
 /// <summary>
-/// 定时向 /api/oauth/usage 取数，把结果写进 PetModel。
-/// Tick / ForceRefresh 必须在 UI 线程调用（定时器与 UI 事件），HTTP 在线程池上跑，
-/// 回写模型时统一 post 回 UI 线程——和 macOS 版 main queue 的约定一致。
+/// Fetches from /api/oauth/usage on a timer and writes the result into PetModel.
+/// Tick / ForceRefresh must be called on the UI thread (timer and UI events), the HTTP runs on the
+/// thread pool, and writing back to the model is always posted back to the UI thread — the same
+/// convention as the macOS version's main queue.
 /// </summary>
 public sealed class UsageFetcher : IDisposable
 {
     private const string UsageEndpoint = "https://api.anthropic.com/api/oauth/usage";
-    private const double NormalInterval = 60;   // 秒
+    private const double NormalInterval = 60;   // seconds
 
-    /// <summary>数据有变动时回调（在 UI 线程上）。</summary>
+    /// <summary>Callback fired when the data has changed (on the UI thread).</summary>
     public Action? OnUpdate;
 
     private readonly PetModel _model;
@@ -355,16 +388,17 @@ public sealed class UsageFetcher : IDisposable
     private readonly CancellationTokenSource _cts = new();
 
     private DateTimeOffset _nextFetchAt = DateTimeOffset.MinValue;   // = Date.distantPast
-    private bool _inFlight;        // 同一时刻只允许一个请求
-    private bool _forcePending;    // 请求进行中收到的手动刷新，完成后立即补一次
+    private bool _inFlight;        // only one request allowed at a time
+    private bool _forcePending;    // a manual refresh that arrived mid-request; run one more the moment this finishes
 
-    // 只在后台 fetch 线程读写（_inFlight 保证同一时刻只有一个 fetch）
+    // Only read and written on the background fetch thread (_inFlight guarantees only one fetch at a time)
     private int _refreshStreak;
 
     /// <param name="post">
-    /// 把回调排到 UI 线程的办法。不传就抓构造时的 SynchronizationContext
-    /// （Avalonia 在 UI 线程上装了一个）；再没有就地执行，方便在测试里同步跑完。
-    /// Core 层不引用任何 UI 框架，所以不能直接用 Dispatcher。
+    /// The means of queueing a callback onto the UI thread. Leave it out and the SynchronizationContext
+    /// present at construction time is grabbed instead (Avalonia installs one on the UI thread);
+    /// failing that the callback runs on the spot, which lets tests run through synchronously.
+    /// The Core layer references no UI framework at all, so it cannot just use Dispatcher.
     /// </param>
     public UsageFetcher(PetModel model, ITokenSource tokens,
                         HttpClient? http = null, Action<Action>? post = null)
@@ -372,8 +406,9 @@ public sealed class UsageFetcher : IDisposable
         _model = model;
         _tokens = tokens;
         _ownsHttp = http is null;
-        // 自己建的客户端设 20 秒；外面塞进来的不动它的 Timeout，反正每次请求还套了
-        // 一个 20 秒的 CTS 兜底（对应原文「per-request 15s + 信号量 20s」里的外层那道）
+        // A client we build ourselves gets 20 seconds; one handed in from outside keeps its own
+        // Timeout, since every request is wrapped in a 20-second CTS as a backstop anyway (this is the
+        // outer of the two in the original's "per-request 15s + semaphore 20s")
         _http = http ?? new HttpClient { Timeout = TimeSpan.FromSeconds(20) };
         if (post is not null)
         {
@@ -386,7 +421,7 @@ public sealed class UsageFetcher : IDisposable
         }
     }
 
-    // Tick / ForceRefresh / Finish 只在 UI 线程调用（定时器与 UI 事件）
+    // Tick / ForceRefresh / Finish are only called on the UI thread (timer and UI events)
     public void Tick()
     {
         if (_cts.IsCancellationRequested) return;
@@ -398,12 +433,14 @@ public sealed class UsageFetcher : IDisposable
         _ = Task.Run(RunFetchAsync);
     }
 
-    /// <summary>用户主动刷新：也是唯一重新尝试读取凭证存储的入口（自动轮询不重试，免得骚扰）。</summary>
+    /// <summary>A refresh the user asked for: also the only way in to retrying a read of the credential store (the automatic poll doesn't retry, so as not to pester).</summary>
     public void ForceRefresh()
     {
-        // 对应 macOS 版 forceRefresh 里复位 keychainBlocked 那两行。规则的由来是钥匙串授权弹窗，
-        // Windows 上换成 DPAPI 解密失败，一样不该每 60 秒重试一次，所以规则原样保留，
-        // 只是复位动作挪进了 ITokenSource（那边才知道自己被什么挡住了）
+        // This is the two lines in the macOS version's forceRefresh that reset keychainBlocked. The
+        // rule came out of the Keychain authorisation prompt; on Windows that becomes a failed DPAPI
+        // decryption, which equally should not be retried every 60 seconds, so the rule is kept
+        // exactly as it was — only the reset itself has moved into ITokenSource (that's the side that
+        // knows what blocked it)
         _tokens.RetryBlockedRead();
         _forcePending = true;
         Tick();
@@ -423,13 +460,13 @@ public sealed class UsageFetcher : IDisposable
             _model.ErrorMsg = msg;
             _model.Asleep = sleep;
             _model.Loading = false;
-            _model.NeedsLogin = false;   // 走到这里说明令牌已取到，属于可自动重试的失败
+            _model.NeedsLogin = false;   // getting here means the token was obtained, so this is a failure we can retry automatically
             Finish(retryAfter);
             OnUpdate?.Invoke();
         });
     }
 
-    /// <summary>放弃本次取数（关停中），但必须收尾，否则 _inFlight 永远挂着。</summary>
+    /// <summary>Give up on this fetch (we are shutting down), but the tidy-up still has to happen or _inFlight stays stuck forever.</summary>
     private void Abandon()
     {
         _post(() =>
@@ -440,7 +477,7 @@ public sealed class UsageFetcher : IDisposable
         });
     }
 
-    /// <summary>没有可用令牌：进入待登录状态，不再频繁重试。</summary>
+    /// <summary>No usable token: go into the awaiting-sign-in state and stop retrying so often.</summary>
     private void NeedLogin(string msg)
     {
         _post(() =>
@@ -456,16 +493,19 @@ public sealed class UsageFetcher : IDisposable
     }
 
     /// <summary>
-    /// 「服务端明确否定了这份凭证」——只有这一种情况才允许作废令牌。
-    /// 必须把 OAuthException 单列出来按具体类型认：它有同名属性但没声明实现
-    /// <see cref="ICredentialRejection"/>，光靠接口判断这条分支永远是 false，
-    /// 结果就是 refresh token 真的失效了也只显示「网络暂时不可用」，永远不提示重新登录。
+    /// "The server has explicitly refused these credentials" — the one and only case in which the
+    /// token may be invalidated.
+    /// OAuthException has to be listed separately and recognised by its concrete type: it has a
+    /// property of the same name but never declares that it implements
+    /// <see cref="ICredentialRejection"/>, so going by the interface alone this branch is always
+    /// false, and the upshot is that even when the refresh token really has expired all you get is
+    /// "network temporarily unavailable", never a prompt to sign in again.
     /// </summary>
     private static bool IsCredentialRejection(Exception e) => e switch
     {
         OAuthException oe => oe.IsCredentialRejection,
         ICredentialRejection c => c.IsCredentialRejection,
-        _ => false,   // 没自报家门的异常一律当瞬时故障：宁可多等，不可误登出
+        _ => false,   // an exception that didn't announce itself counts as transient: better to wait longer than to sign the user out by mistake
     };
 
     private async Task RunFetchAsync()
@@ -476,10 +516,12 @@ public sealed class UsageFetcher : IDisposable
         }
         catch (Exception e)
         {
-            // 兜底：FetchAsync 的每条出口都会自己收尾，走到这儿说明有没想到的异常。
-            // 宁可多收一次尾，也不能让 _inFlight 挂住——那样宠物就再也不刷新了
-            // （原文 abandon() 的注释警告的正是这个坑）。
-            // 关停途中的异常不必回写模型：那时 Tick 已经短路，_inFlight 挂着也无所谓
+            // Backstop: every exit from FetchAsync tidies up after itself, so getting here means an
+            // exception we didn't think of. Better to tidy up one time too many than to let _inFlight
+            // stay stuck — that would stop the pet ever refreshing again (this is exactly the pit the
+            // original's abandon() comment warns about).
+            // An exception during shutdown needn't be written back to the model: by then Tick has
+            // already short-circuited, so a stuck _inFlight doesn't matter
             if (_cts.IsCancellationRequested) return;
             Fail($"内部错误：{e.Message}", sleep: true, retryAfter: 300);
         }
@@ -496,35 +538,41 @@ public sealed class UsageFetcher : IDisposable
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
-            // 只有真的被关停才静默收尾。不加这个 when 的话，HttpClient 超时抛的
-            // TaskCanceledException 也会掉进来 → Abandon 把 retryAfter 设成 0 →
-            // 下一个定时器 tick 立刻再来一次，变成拿超时当节拍器的热循环
+            // Only tidy up silently if we really were shut down. Without this when clause, the
+            // TaskCanceledException thrown by an HttpClient timeout would fall in here too → Abandon
+            // sets retryAfter to 0 → the next timer tick fires straight away, and it turns into a hot
+            // loop using the timeout as its metronome
             Abandon();
             return;
         }
         catch (Exception e) when (IsCredentialRejection(e))
         {
-            // 只有服务端明确否定凭证才登出
+            // only sign out when the server has explicitly refused the credentials
             _tokens.Invalidate();
             NeedLogin("登录已失效\n双击我重新登录");
             return;
         }
         catch (Exception)
         {
-            // 网络/限流/5xx，以及任何没自报家门的异常，一律保留令牌稍后重试。
-            // 绝不能在这里 Invalidate：一次断网就把用户永久登出，这是最贵的那种 bug
+            // Network / rate limiting / 5xx, and any exception that didn't announce itself, all keep
+            // the token and retry later.
+            // Never Invalidate here: one dropped connection would sign the user out permanently, and
+            // that is the most expensive kind of bug there is
             Fail("网络暂时不可用，稍后自动重试", sleep: true, retryAfter: 120);
             return;
         }
 
-        // 紧跟 ResolveAsync 之后取走，别等到 401 分支再读：那时中间隔了一整个 HTTP 往返
+        // Grab it right after ResolveAsync rather than reading it in the 401 branch: by then a whole HTTP round trip has gone by
         var justRefreshed = _tokens.LastResolveRefreshed;
 
         if (resolved is not { } cred)
         {
-            // 没有可用令牌：没登录过、用户主动退出、CLI 凭证不存在或已过期，都归到这里。
-            // 「凭证存储读取被拒」要单独说：那是可重试的，不是真的没登录，
-            // 文案得告诉用户「再试一次」而不是让他重走一遍登录（对应原文的 keychainDenied 分支）
+            // No usable token: never signed in, the user signed out deliberately, or the CLI
+            // credentials are missing or expired — the lot ends up here.
+            // "reading the credential store was refused" needs saying separately: that one is
+            // retryable, not really a signed-out state, and the wording has to tell the user to try
+            // again rather than sending them through the whole sign-in once more (this is the
+            // original's keychainDenied branch)
             NeedLogin(_tokens.LastNoTokenReason == CredErrorKind.StoreDenied
                 ? "凭证读取被拒\n双击我重试或重新登录"
                 : "未登录\n双击我登录 Claude 账号");
@@ -555,7 +603,7 @@ public sealed class UsageFetcher : IDisposable
         }
         catch (OperationCanceledException)
         {
-            // 只剩超时这一种可能（HttpClient.Timeout 与 CTS 都走这个异常）
+            // a timeout is the only possibility left (both HttpClient.Timeout and the CTS surface as this exception)
             Fail("请求超时，稍后自动重试", sleep: true, retryAfter: 90);
             return;
         }
@@ -566,7 +614,7 @@ public sealed class UsageFetcher : IDisposable
         }
         catch (IOException)
         {
-            // 读响应体时断流
+            // the stream broke while reading the response body
             Fail("网络不可用，稍后自动重试", sleep: true, retryAfter: 90);
             return;
         }
@@ -585,8 +633,8 @@ public sealed class UsageFetcher : IDisposable
                 _post(() =>
                 {
                     _model.Rows = ok.Rows;
-                    // 三个分支都要赋值：漏掉最后一个，换账号后旧套餐名会一直挂在
-                    // 新账号的数字旁边
+                    // All three branches must assign: miss the last one and after switching accounts
+                    // the old plan name keeps hanging around next to the new account's numbers
                     if (ok.Tier.Length > 0)
                     {
                         _model.Tier = ok.Tier;
@@ -610,16 +658,18 @@ public sealed class UsageFetcher : IDisposable
                 return;
             }
             case 401:
-                // 令牌被拒：立刻试一次刷新。本轮已经刷过（justRefreshed）就不再刷——
-                // 刚换的新令牌马上又被拒，说明凭证是真的死了，再刷只是空转；
-                // 连续刷新还有 3 次上限，避免无限轮转
+                // Token refused: try a refresh straight away. If this round has already refreshed
+                // (justRefreshed), don't refresh again — a brand-new token being refused immediately
+                // means the credentials really are dead and another refresh is just spinning; on top
+                // of that consecutive refreshes are capped at 3, to avoid going round forever
                 if (cred.IsOwn && !justRefreshed && _refreshStreak < 3)
                 {
                     bool renewed;
                     try
                     {
-                        // 这里用 ct 而不是上面那个 timeout：那 20 秒是给 usage 请求的，
-                        // 到这会儿多半已经烧掉了，拿它去续期等于必然超时
+                        // Use ct here, not the timeout above: those 20 seconds belonged to the usage
+                        // request and have most likely been burnt through by now, so renewing with it
+                        // amounts to a guaranteed timeout
                         renewed = await _tokens.TryRenewAsync(ct).ConfigureAwait(false);
                     }
                     catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -629,13 +679,13 @@ public sealed class UsageFetcher : IDisposable
                     }
                     catch (Exception e) when (!IsCredentialRejection(e))
                     {
-                        // 续期时断网/限流/5xx：令牌一个字都别动，等下次
+                        // Dropped connection / rate limiting / 5xx during renewal: don't touch a single character of the token, wait for the next round
                         Fail("网络暂时不可用，稍后自动重试", sleep: true, retryAfter: 120);
                         return;
                     }
                     catch (Exception)
                     {
-                        // 服务端明确否定了 refresh token，这才是真失效
+                        // The server has explicitly refused the refresh token — this is the one case that really is expired
                         _tokens.Invalidate();
                         NeedLogin("登录已失效\n双击我重新登录");
                         return;
@@ -649,10 +699,12 @@ public sealed class UsageFetcher : IDisposable
                     }
                     else
                     {
-                        // false 有两种来路：压根没有可续的令牌，或者续期途中用户退出了登录。
-                        // 原文分别走 signOut+needLogin 与 abandon，接口分不出来，统一按前者。
-                        // 不能选 abandon：它把 retryAfter 设成 0，碰上第一种来路就成了
-                        // 「401 → 立刻重试 → 401」的热循环
+                        // false arrives from two directions: there was no token to renew at all, or
+                        // the user signed out part-way through the renewal. The original went to
+                        // signOut+needLogin and abandon respectively; the interface cannot tell them
+                        // apart, so both take the former.
+                        // abandon is not an option: it sets retryAfter to 0, and against the first of
+                        // those two directions that becomes a "401 → retry immediately → 401" hot loop
                         _tokens.Invalidate();
                         NeedLogin("登录已失效\n双击我重新登录");
                     }
@@ -664,12 +716,12 @@ public sealed class UsageFetcher : IDisposable
                 }
                 else
                 {
-                    // 用的是 Claude Code CLI 的凭证，不是我们发的，无权作废它
+                    // These are the Claude Code CLI's credentials, not ones we issued, so we have no right to invalidate them
                     NeedLogin("未登录\n双击我登录 Claude 账号");
                 }
                 return;
             case 403:
-                // 权限不足（scope 不对等），刷新解决不了，别空转
+                // Insufficient permissions (the scope doesn't line up, and the like); a refresh won't fix it, so don't spin
                 Fail("接口拒绝访问 (403)\n可尝试重新登录", sleep: true, retryAfter: 600);
                 return;
             case 429:
@@ -683,8 +735,9 @@ public sealed class UsageFetcher : IDisposable
 
     public void Dispose()
     {
-        // 只 Cancel 不 Dispose：在途的 FetchAsync 还要拿 _cts.Token 去建链接令牌源，
-        // 这时把它 Dispose 掉会让那边抛 ObjectDisposedException。交给 GC 就行
+        // Cancel only, don't Dispose: an in-flight FetchAsync still needs _cts.Token to build a linked
+        // token source, and disposing it now would make that side throw ObjectDisposedException.
+        // Leaving it to the GC is fine
         _cts.Cancel();
         if (_ownsHttp) _http.Dispose();
     }

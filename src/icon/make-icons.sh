@@ -1,14 +1,17 @@
 #!/bin/zsh
-# 重新生成 App 图标（改了太阳的造型才需要跑）
+# Regenerate the app icon (only needed when you have changed the shape of the sun)
 #
-#   ./make-icons.sh          浅色底（默认，装进 App）
-#   ./make-icons.sh dark     深色底
+#   ./make-icons.sh          light background (the default, the one that goes into the app)
+#   ./make-icons.sh dark     dark background
 #
-# 说明：macOS 的传统 .icns 不会跟随系统明暗自动切换——能切换的是 macOS 26 的
-# .icon 格式，只能用 Xcode 的 Icon Composer（纯 GUI）做。资源目录那条路走不通：
-# actool 会零报错地收下深色变体，但编出来的 Assets.car 里根本没有它们
-# （mac idiom 的 appiconset 不支持明暗变体，那是 iOS 的机制，assetutil 可验证）。
-# 所以这里做成手动切换：换完跑一次 build.sh 即可。
+# Note: the traditional macOS .icns does not switch automatically with the system's light/dark
+# appearance — what can switch is the .icon format in macOS 26, and that can only be made with
+# Xcode's Icon Composer (pure GUI). The asset catalogue route is a dead end:
+# actool accepts the dark variants without a single error, but they are simply not there in
+# the Assets.car it produces
+# (the mac idiom's appiconset does not support light/dark variants; that is an iOS mechanism,
+# and assetutil will confirm it).
+# So this is a manual switch instead: once you have switched, just run build.sh once.
 set -e
 cd "$(dirname "$0")"
 rm -rf Sundial.iconset Sundial-dark.iconset

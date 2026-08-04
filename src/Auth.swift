@@ -1,12 +1,12 @@
-// Sundial — 桌面宠物，显示 Claude Code 用量与会话状态
-// 本文件由 main.swift 拆分而来
+// Sundial — a desktop pet that shows Claude Code usage and session status
+// This file was split out of main.swift
 
 import AppKit
 import CryptoKit
 import Foundation
 import Security
 
-// MARK: - 桌宠自己的 OAuth 登录（PKCE，手动粘贴授权码）
+// MARK: - The pet's own OAuth sign-in (PKCE, with the authorisation code pasted in by hand)
 
 enum OAuth {
     static let clientID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
@@ -31,7 +31,7 @@ enum OAuth {
         base64URL(Data(SHA256.hash(data: Data(verifier.utf8))))
     }
 
-    // state 与 verifier 同值，和官方客户端一致
+    // state holds the same value as the verifier, matching the official client
     static func authorizeURL(verifier: String) -> URL? {
         var c = URLComponents(string: "https://claude.ai/oauth/authorize")!
         c.queryItems = [
@@ -51,7 +51,7 @@ enum OAuth {
 struct StoredToken: Codable {
     var accessToken: String
     var refreshToken: String
-    var expiresAt: Double   // 秒级时间戳
+    var expiresAt: Double   // timestamp in seconds
     var isExpiring: Bool { expiresAt < Date().timeIntervalSince1970 + 300 }
 }
 
@@ -63,8 +63,8 @@ enum OAuthError: Error {
 }
 
 extension OAuthError {
-    /// 只有服务端明确否定这份凭证（RFC 6749 §5.2 invalid_grant / 客户端认证失败）才算登录失效。
-    /// 网络故障、429 限流、5xx 都是瞬时问题，绝不能删掉钥匙串里的 refresh token。
+    /// Only an explicit rejection of these credentials by the server (RFC 6749 §5.2 invalid_grant / client authentication failure) counts as the sign-in having gone stale.
+    /// Network failures, 429 rate limiting and 5xx are all transient problems — on no account delete the refresh token from the keychain for those.
     var isCredentialRejection: Bool {
         if case .server(let code, _) = self { return code == 400 || code == 401 }
         return false
@@ -92,7 +92,7 @@ func oauthErrorText(_ e: Error) -> String {
     }
 }
 
-/// 同步 POST 到令牌端点（在后台线程调用）
+/// Synchronous POST to the token endpoint (call this on a background thread)
 func oauthPost(_ body: [String: String]) throws -> StoredToken {
     var req = URLRequest(url: OAuth.tokenEndpoint)
     req.httpMethod = "POST"
@@ -131,7 +131,7 @@ func oauthPost(_ body: [String: String]) throws -> StoredToken {
                        expiresAt: Date().timeIntervalSince1970 + expiresIn)
 }
 
-/// 粘贴内容可能是 `code#state`、裸 code，或用户直接从地址栏复制的整条回调地址
+/// What gets pasted may be `code#state`, a bare code, or the whole callback URL the user copied straight out of the address bar
 func exchangeCode(_ pasted: String, verifier: String) throws -> StoredToken {
     let raw = pasted.trimmingCharacters(in: .whitespacesAndNewlines)
     var code = raw
@@ -154,9 +154,11 @@ func exchangeCode(_ pasted: String, verifier: String) throws -> StoredToken {
     guard !code.isEmpty else {
         throw OAuthError.badPaste("没能从粘贴的内容里认出授权码。请复制授权页面上显示的那段授权码，或浏览器地址栏里的整条回调地址。")
     }
-    // 不再因 state 不符就直接拒绝：真正的安全绑定是 PKCE 的 code_verifier，
-    // 服务端会校验。这里只在明显不符时给出可操作的提示，仍然照常提交，
-    // 让服务端做最终判断——否则浏览器里留着的旧授权页会让人反复失败。
+    // We no longer reject outright just because state doesn't match: the real security
+    // binding is PKCE's code_verifier, and the server checks that. Here we only give an
+    // actionable hint when it clearly doesn't match, and submit as normal anyway,
+    // leaving the final judgement to the server — otherwise an old authorisation page
+    // left open in the browser makes people fail over and over.
     if state != verifier {
         state = verifier
     }
@@ -181,18 +183,19 @@ func refreshToken(_ old: StoredToken) throws -> StoredToken {
     return new
 }
 
-// MARK: - 令牌存储（本地文件，0600）
+// MARK: - Token storage (a local file, 0600)
 
 enum TokenStore {
     enum LoadOutcome {
         case ok(StoredToken)
-        case none      // 确认没有这一项
-        case failed    // 读取被拒/钥匙串异常，重试可能成功
+        case none      // confirmed that there is no such item
+        case failed    // the read was denied / the keychain misbehaved; a retry might succeed
     }
 
-    // 令牌存本地文件（0600，仅本人可读）而不是钥匙串：
-    // 每次重新编译签名都会变，钥匙串 ACL 就认不出新版本、要求输密码重新授权。
-    // 文件不受签名影响，改多少次都不会再弹窗。
+    // The token goes in a local file (0600, readable only by yourself) rather than in the keychain:
+    // the signature changes on every rebuild, so the keychain ACL doesn't recognise the new build
+    // and asks for a password to re-authorise.
+    // A file is unaffected by the signature — however many times you rebuild, there are no more prompts.
     static var fileURL: URL {
         FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Application Support/Sundial/credentials.json")
@@ -206,10 +209,12 @@ enum TokenStore {
             at: dir, withIntermediateDirectories: true,
             attributes: [.posixPermissions: 0o700])
         do {
-            // 不能用 .completeFileProtection：那是 iOS 的数据保护，在 macOS 上会把
-            // 访问权绑到写入方的代码签名；本 App 每次重新编译签名都变，
-            // 结果就是读不了自己写的令牌（错误 260/EPERM），表现为莫名其妙要重新登录。
-            // 保护靠 0600 权限位 + 0700 目录。
+            // We can't use .completeFileProtection: that's iOS data protection, and on macOS it
+            // ties access rights to the code signature of whoever wrote the file. This app's
+            // signature changes on every rebuild, and the upshot is that it can't read the token
+            // it wrote itself (error 260/EPERM), which shows up as being inexplicably asked to
+            // sign in again.
+            // The protection comes from the 0600 permission bits + the 0700 directory.
             try data.write(to: fileURL, options: [.atomic])
             try? FileManager.default.setAttributes([.posixPermissions: 0o600],
                                                    ofItemAtPath: fileURL.path)
@@ -219,7 +224,7 @@ enum TokenStore {
         }
     }
 
-    /// 改名前的目录，读到就搬过来，免得已登录的用户被迫重新登录
+    /// The directory used before the rename; if anything is found there, move it across, so that users who are already signed in aren't forced to sign in again
     private static var legacyFileURL: URL {
         FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Application Support/Solaris/credentials.json")
@@ -234,7 +239,7 @@ enum TokenStore {
         }
         if let d = try? Data(contentsOf: fileURL) {
             if let t = try? JSONDecoder().decode(StoredToken.self, from: d) { return .ok(t) }
-            return .none   // 文件坏了：重新登录即可修复
+            return .none   // the file is corrupt: signing in again puts it right
         }
         return .none
     }
@@ -244,7 +249,7 @@ enum TokenStore {
     }
 }
 
-// MARK: - 凭证读取
+// MARK: - Reading the credentials
 
 enum CredError: Error {
     case keychainDenied
@@ -271,7 +276,7 @@ func loadCredentials() throws -> Credentials {
     var raw: Data?
     if case .ok(let data) = kc { raw = data }
     if raw == nil {
-        // 部分安装把凭证放在文件里；钥匙串被拒时文件仍可能有效
+        // some installations keep the credentials in a file; even when the keychain refuses us, the file may still be good
         let fileURL = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".claude/.credentials.json")
         raw = try? Data(contentsOf: fileURL)
@@ -287,7 +292,7 @@ func loadCredentials() throws -> Credentials {
     guard let oauth = root["claudeAiOauth"] as? [String: Any],
           let token = oauth["accessToken"] as? String, !token.isEmpty
     else {
-        // 条目存在但只有 mcpOAuth（Claude Code 桌面版把登录令牌存在别处，不在此钥匙串条目里）
+        // the entry exists but only holds mcpOAuth (the Claude Code desktop app keeps the sign-in token somewhere else, not in this keychain entry)
         if root["claudeAiOauth"] == nil && root["mcpOAuth"] != nil {
             throw CredError.tokenElsewhere
         }
@@ -295,7 +300,7 @@ func loadCredentials() throws -> Credentials {
     }
 
     if let expiresAt = oauth["expiresAt"] as? Double {
-        // expiresAt 为毫秒时间戳；留 60 秒余量
+        // expiresAt is a millisecond timestamp; leave 60 seconds of headroom
         if expiresAt / 1000.0 < Date().timeIntervalSince1970 + 60 {
             throw CredError.expired
         }
@@ -314,7 +319,7 @@ func keychainRead() -> KeychainResult {
     let done = DispatchSemaphore(value: 0)
     p.terminationHandler = { _ in done.signal() }
     do { try p.run() } catch { return .denied }
-    // 钥匙串授权弹窗无人处理时 security 会一直挂着，不能无限等
+    // when nobody deals with the keychain authorisation prompt, `security` just hangs there indefinitely, so we can't wait forever
     if done.wait(timeout: .now() + 15) == .timedOut {
         p.terminate()
         _ = done.wait(timeout: .now() + 2)
@@ -322,12 +327,12 @@ func keychainRead() -> KeychainResult {
     }
     let data = out.fileHandleForReading.readDataToEndOfFile()
     guard p.terminationStatus == 0 else {
-        // 44 = 钥匙串里没有这一项
+        // 44 = there is no such item in the keychain
         return p.terminationStatus == 44 ? .notFound : .denied
     }
     guard var s = String(data: data, encoding: .utf8)?
         .trimmingCharacters(in: .whitespacesAndNewlines), !s.isEmpty else { return .notFound }
-    // 密码含特殊字符时 security 会输出十六进制
+    // when the password contains special characters, `security` prints it as hex
     if !s.hasPrefix("{"), s.count % 2 == 0,
        s.allSatisfy({ $0.isHexDigit }) {
         var bytes: [UInt8] = []

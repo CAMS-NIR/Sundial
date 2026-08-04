@@ -346,6 +346,18 @@ transcript files, depends on no endpoint, and needs no account.
 
 ---
 
+## Supporting this
+
+It is free, MIT-licensed, and built in spare time. If it saves you from
+opening `/usage` for the tenth time today, a small sponsorship is welcome and
+entirely optional — nothing is gated behind it, and nothing ever will be.
+
+Bug reports and reproduction steps are worth just as much. The awkward ones —
+timing that looks wrong, a session block that says the wrong thing — are
+exactly what is hardest to find alone.
+
+---
+
 ## Licence
 
 MIT — see [LICENSE](LICENSE).

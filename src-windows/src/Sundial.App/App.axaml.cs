@@ -1,13 +1,15 @@
-// Sundial (Windows 版) — Application 子类 / 组装根
+// Sundial (Windows version) — Application subclass / composition root
 //
-// 对应 macOS 版 App.swift 里 AppDelegate.applicationDidFinishLaunching：
-// 建模型、建窗口、建托盘入口、把数据层接上去。
+// Corresponds to AppDelegate.applicationDidFinishLaunching in the macOS version's App.swift:
+// build the model, build the window, build the tray entry point, wire the data layer up.
 //
-// 这里故意不配 .axaml 标记文件，界面全部用 C# 构建：
-// 1) 少一个 XAML 编译器环节，就少一类「设计时能过、运行时炸」的坑；
-// 2) 这个程序只有一个无边框窗口和两个小对话框，没有值得用 XAML 表达的模板层级；
-// 3) 全 C# 也让整个 UI 能在 Mac 上直接跑起来验证。
-// 代价：用不了 Avalonia 预览器。
+// There is deliberately no .axaml markup file here; the entire interface is built in C#:
+// 1) one fewer XAML compiler stage means one fewer class of "passes at design time, blows up at
+//    runtime" pitfall;
+// 2) this program has only one borderless window and two small dialogs — there is no template
+//    hierarchy worth expressing in XAML;
+// 3) being all-C# also lets the whole UI be run and verified directly on a Mac.
+// The price: no Avalonia previewer.
 
 using Avalonia;
 using Avalonia.Controls;
@@ -25,9 +27,11 @@ public sealed class App : Application
 
     public override void Initialize()
     {
-        // 必须挂一套主题，否则 Button / TextBox 这些控件没有模板，登录框会是一片空白。
-        // 不设 RequestedThemeVariant：跟随系统明暗，和 macOS 版「不锁外观」的行为一致
-        // （窗口层再把结果写进 Theme.IsDark，绘制才拿得到）。
+        // A theme has to be attached, otherwise controls such as Button / TextBox have no template
+        // and the login box comes out completely blank.
+        // RequestedThemeVariant is deliberately not set: follow the system's light/dark setting,
+        // matching the macOS version's "don't lock the appearance" behaviour (the window layer then
+        // writes the result into Theme.IsDark, which is how the drawing code gets at it).
         Styles.Add(new FluentTheme());
     }
 
@@ -35,28 +39,32 @@ public sealed class App : Application
     {
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
-            // 关键：默认是「最后一个窗口关掉就退出」。登录框一关，桌宠就跟着没了。
-            // 退出只走菜单里的那一项。
+            // Crucial: the default is "quit as soon as the last window closes". Close the login box
+            // and the pet disappears along with it. Quitting goes through that one menu item only.
             desktop.ShutdownMode = ShutdownMode.OnExplicitShutdown;
 
             var model = new PetModel();
             var renderer = new PetRenderer(model);
             var window = new MainWindow(model, renderer);
 
-            // ───────────────────────── 数据层接线区 ─────────────────────────
+            // ───────────────────────── data layer wiring ─────────────────────────
             var tokens = new TokenSource();
-            // post 显式走 Dispatcher，而不是让 UsageFetcher 去抓 SynchronizationContext：
-            // 抓上下文依赖「构造时正好在 UI 线程」这个隐含前提，一旦哪天组装挪了地方就会
-            // 变成后台线程改模型，症状是偶发的画面撕裂或空引用，极难查。写死最稳。
+            // post goes through the Dispatcher explicitly rather than letting UsageFetcher grab the
+            // SynchronizationContext: grabbing the context relies on the implicit premise that we
+            // happen to be on the UI thread at construction time, and the day this composition moves
+            // somewhere else it turns into a background thread mutating the model — the symptom being
+            // occasional torn frames or null references, which is extremely hard to track down.
+            // Hard-coding it is the safest option.
             var fetcher = new UsageFetcher(model, tokens, post: a => Dispatcher.UIThread.Post(a));
             var watcher = new ActivityWatcher();
             _fetcher = fetcher;
 
-            // 取到新数据 → 重算窗口尺寸 + 重绘（等价于 macOS 版的 fetcher.onUpdate）
+            // New data arrives → recompute the window size + redraw (equivalent to fetcher.onUpdate in the macOS version)
             fetcher.OnUpdate = window.NotifyModelChanged;
 
-            // Tick 自己带节流（60 秒一轮 + 在途去重），所以这里 15 秒喊一次是安全的，
-            // 与 macOS 版的 15 秒定时器一致：它负责的是「该轮到你了」，不是「必须去请求」
+            // Tick throttles itself (one round every 60 seconds + in-flight de-duplication), so
+            // calling it every 15 seconds here is safe, and matches the macOS version's 15-second
+            // timer: its job is "it's your turn now", not "you must go and make a request"
             window.FetchUsageAsync = () =>
             {
                 fetcher.Tick();
@@ -64,27 +72,34 @@ public sealed class App : Application
             };
             window.ForceRefreshRequested = fetcher.ForceRefresh;
 
-            // 磁盘轮询放到线程池上：ActivityWatcher.Poll 要读 ~/.claude 下一堆 jsonl，
-            // 会话多的时候几十毫秒起步，压在 UI 线程上就是每 0.8 秒卡一下动画。
-            // 回来之后在 UI 线程整体替换列表——Sessions 本身是每轮的完整快照，不会读到半截。
+            // Disk polling is pushed onto the thread pool: ActivityWatcher.Poll has to read a pile of
+            // jsonl files under ~/.claude, which starts at tens of milliseconds once there are a lot
+            // of sessions, and running that on the UI thread means the animation hitches every 0.8 seconds.
+            // Once it comes back, the list is replaced wholesale on the UI thread — Sessions is itself
+            // a complete snapshot of each round, so it can never be read half-finished.
             window.PollActivityAsync = async () =>
             {
                 await Task.Run(watcher.Poll);
                 model.Sessions = watcher.Sessions.ToList();
             };
-            // 已读要记进 watcher，否则下一轮轮询这条未读又会冒出来
+            // The read state has to be recorded in the watcher, otherwise this unread item pops back up on the next poll
             window.MarkReadRequested = watcher.MarkRead;
 
-            // HasToken 只看内存缓存（读盘/解密要在后台做，不能卡菜单）。
-            // 后果是启动后第一次取数完成之前，菜单显示的是「登录 Claude 账号…」而不是
-            // 「重新登录」——macOS 版的 fetcher.hasToken 也是这个性子，属于已知的小误差。
+            // HasToken only looks at the in-memory cache (reading from disk / decrypting has to happen
+            // in the background; it must not stall the menu).
+            // The consequence is that until the first fetch after start-up completes, the menu shows
+            // "Log in to Claude account…" rather than "Log in again" — the macOS version's
+            // fetcher.hasToken has the same temperament, and it counts as a known small inaccuracy.
             window.HasTokenProvider = () => tokens.HasToken;
             window.SignOutRequested = tokens.SignOutByUser;
 
-            // 同一次运行内复用同一个 verifier：每次点登录都换新的话，用户从上一个授权页
-            // （浏览器很容易留着旧标签）复制的码就永远对不上，表现为「反复登录失败」。
-            // 登录成功后才作废重来。verifier 只在 UI 线程上读写（授权页按钮与换码回调
-            // 都在 UI 线程），所以不用加锁。
+            // The same verifier is reused within a single run: if a new one were generated on every
+            // click of "log in", the code the user copied from the previous authorisation page (a
+            // browser very easily leaves an old tab lying around) would never match, which presents as
+            // "logging in fails over and over".
+            // It is only invalidated and started afresh once login succeeds. verifier is read and
+            // written on the UI thread only (both the authorisation-page button and the code-exchange
+            // callback are on the UI thread), so no lock is needed.
             string? verifier = null;
             window.AuthorizeUrlProvider = () =>
             {
@@ -99,20 +114,22 @@ public sealed class App : Application
                 }
                 try
                 {
-                    // 这里不写 ConfigureAwait(false)：整条链路留在 UI 线程上，
-                    // 下面对 verifier 的清零和窗口那边改模型才不用再考虑线程
+                    // No ConfigureAwait(false) here: the whole chain stays on the UI thread, which is
+                    // what lets the clearing of verifier below and the model changes over on the
+                    // window side stop worrying about threads
                     var token = await OAuthClient.ExchangeCodeAsync(code, v, CancellationToken.None);
                     var saved = TokenStore.Save(token);
                     tokens.AdoptToken(token);
-                    verifier = null;                  // 成功了才换新的
+                    verifier = null;                  // only swap in a new one once it has succeeded
                     return new LoginOutcome(true, saved
                         ? null
                         : "登录成功，但令牌没能存到本机，下次启动可能需要重新登录。");
                 }
                 catch (Exception ex)
                 {
-                    // Describe 会把「浏览器里留着旧授权页」这类真实原因讲清楚。
-                    // 换成一句「登录失败」，用户就只能反复试同一个坏码
+                    // Describe spells out the actual reason, things like "there's an old authorisation
+                    // page still sitting in the browser". Swap that for a bare "login failed" and all
+                    // the user can do is keep trying the same bad code over and over
                     return new LoginOutcome(false, OAuthErrorText.Describe(ex));
                 }
             };
@@ -126,11 +143,12 @@ public sealed class App : Application
 
             desktop.Exit += (_, _) =>
             {
-                // 不显式释放的话，进程退出后托盘里会留一个点不掉的幽灵图标，
-                // 直到用户把鼠标划过那块区域才消失——Windows 上的老毛病，必须自己收尾
+                // Without disposing explicitly, a ghost icon you cannot click is left behind in the
+                // tray after the process exits, and it only vanishes once the user sweeps the mouse
+                // across that patch — an old Windows affliction; we have to clean up after ourselves
                 _tray?.Dispose();
                 _tray = null;
-                _fetcher?.Dispose();   // 取消在途请求，别让进程拖着一个 HTTP 往返不退
+                _fetcher?.Dispose();   // cancel in-flight requests; don't leave the process dragging an HTTP round trip behind it
                 _fetcher = null;
             };
         }
@@ -139,8 +157,9 @@ public sealed class App : Application
     }
 
     /// <summary>
-    /// 托盘图标。对应 macOS 的 NSStatusItem：没有 Dock 图标 / 任务栏按钮时，这是唯一稳定的
-    /// 入口——窗口被拖到已拔掉的显示器、或者用户忘了那只太阳是什么，都能从这里找回来。
+    /// The tray icon. Corresponds to macOS's NSStatusItem: with no Dock icon / taskbar button this is
+    /// the only stable way in — whether the window has been dragged onto a monitor that has since been
+    /// unplugged, or the user has forgotten what that little sun is, it can be recovered from here.
     /// </summary>
     private void SetUpTray(MainWindow window)
     {
@@ -151,18 +170,20 @@ public sealed class App : Application
             IsVisible = true,
             Icon = LoadTrayIcon(),
         };
-        // 左键单击：把桌宠拉回可见处。Windows 用户对「点托盘图标 = 把窗口找回来」有肌肉记忆
-        tray.Clicked += (_, _) => window.BringToFront();   // 左键只是唤到前面，不挪位置
+        // Left click: pull the pet back somewhere visible. Windows users have muscle memory for
+        // "click the tray icon = get the window back"
+        tray.Clicked += (_, _) => window.BringToFront();   // left click only summons it to the front, it doesn't move it
 
-        // TrayIcon 要挂到 Application 上才会真正注册进系统托盘
+        // A TrayIcon only actually registers with the system tray once it is attached to the Application
         TrayIcon.SetIcons(this, new TrayIcons { tray });
         _tray = tray;
     }
 
     /// <summary>
-    /// 托盘图标是内嵌的 32×32 PNG（一颗九芒的太阳），不走外部资源文件：
-    /// 少一个 AvaloniaResource 配置、少一处「发布后找不到文件」的失败点。
-    /// 正式发版应换成设计给的多尺寸 .ico，这是能用的占位实现。
+    /// The tray icon is an embedded 32×32 PNG (a nine-rayed sun) rather than an external resource file:
+    /// one fewer AvaloniaResource entry to configure, one fewer "file not found after publishing"
+    /// failure point.
+    /// A proper release should swap in the multi-size .ico from design; this is a workable placeholder.
     /// </summary>
     private static WindowIcon? LoadTrayIcon()
     {

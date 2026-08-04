@@ -4,8 +4,8 @@
     <OutputType>WinExe</OutputType>
     <AssemblyName>Sundial</AssemblyName>
     <TargetFramework>net10.0</TargetFramework>
-    <DebugType>none</DebugType>            <!-- 发给别人不需要 .pdb -->
-    <!-- 版本由 build.sh 用 -p:Version 从仓库根的 VERSION 传入；这里只是本地调试的兜底 -->
+    <DebugType>none</DebugType>            <!-- no .pdb needed when handing this to someone else -->
+    <!-- the version is passed in by build.sh via -p:Version from VERSION at the repo root; this is only a fallback for local debugging -->
     <Version>0.0.0</Version>
     <Company>cams-nir</Company>
     <Product>Sundial</Product>
@@ -13,10 +13,10 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <!-- 全部用 C# 构建界面，不用 .axaml 标记文件，绕开 XAML 编译器 -->
+    <!-- the interface is built entirely in C#, with no .axaml markup files, bypassing the XAML compiler -->
     <EnableDefaultAvaloniaItems>false</EnableDefaultAvaloniaItems>
     <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
-    <!-- 托盘/窗口都不需要 Dock 图标，Windows 上也不进任务栏 -->
+    <!-- neither the tray nor the window needs a Dock icon, and on Windows it stays out of the taskbar -->
     <InvariantGlobalization>false</InvariantGlobalization>
   </PropertyGroup>
 

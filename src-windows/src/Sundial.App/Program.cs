@@ -1,7 +1,7 @@
-// Sundial (Windows 版) — 进程入口
+// Sundial (Windows version) — process entry point
 //
-// 对应 macOS 版的 main.swift：那边是 NSApplication.shared + AppDelegate + run()，
-// 这边是 Avalonia 的 AppBuilder + 经典桌面生命周期。
+// Corresponds to main.swift in the macOS version: over there it is NSApplication.shared +
+// AppDelegate + run(), over here it is Avalonia's AppBuilder + the classic desktop lifetime.
 
 using Avalonia;
 
@@ -9,8 +9,9 @@ namespace Sundial.App;
 
 internal static class Program
 {
-    // [STAThread] 是 Windows 上的硬性要求：托盘图标、剪贴板、拖放都走 COM/OLE，
-    // 不是 STA 的话轻则粘贴失效，重则托盘注册直接抛异常。macOS 上这个特性是空操作。
+    // [STAThread] is a hard requirement on Windows: the tray icon, the clipboard and drag-and-drop all
+    // go through COM/OLE, and without STA you get anything from paste quietly not working to tray
+    // registration throwing outright. On macOS the attribute is a no-op.
     [STAThread]
     public static void Main(string[] args)
     {
@@ -20,20 +21,24 @@ internal static class Program
         }
         catch (Exception ex)
         {
-            // 这是个没有控制台窗口的托盘程序：崩了什么都看不见，用户只会说「点了没反应」。
-            // 所以启动期异常必须落盘，否则线上问题无从查起。
+            // This is a tray program with no console window: when it crashes you see nothing at all,
+            // and all the user will say is "I clicked it and nothing happened". So start-up exceptions
+            // have to be written to disk, otherwise there is no way to start investigating problems in
+            // the field.
             WriteCrashLog(ex);
             throw;
         }
     }
 
-    // 命名与签名固定成 BuildAvaloniaApp()：Avalonia 的设计器 / 预览器按这个约定反射查找。
+    // The name and signature are fixed as BuildAvaloniaApp(): Avalonia's designer / previewer looks it
+    // up by reflection using that convention.
     public static AppBuilder BuildAvaloniaApp()
         => AppBuilder.Configure<App>()
-            .UsePlatformDetect()   // Windows 走 Win32 + Skia；在 Mac 上跑验证时自动换成 macOS 后端
+            .UsePlatformDetect()   // Windows goes via Win32 + Skia; when verifying on a Mac it switches to the macOS backend automatically
             .LogToTrace();
-    // 说明：没有加 .WithInterFont()。那需要额外的 Avalonia.Fonts.Inter 包，
-    // 而界面上的中文本来也不由 Inter 承担，交给系统默认字体（Windows 上是「微软雅黑」一系）更合适。
+    // Note: .WithInterFont() has not been added. That would need the extra Avalonia.Fonts.Inter
+    // package, and the Chinese text in the interface was never going to be carried by Inter anyway, so
+    // leaving it to the system default font (the Microsoft YaHei family on Windows) is a better fit.
 
     private static void WriteCrashLog(Exception ex)
     {
@@ -47,7 +52,8 @@ internal static class Program
         }
         catch
         {
-            // 写日志本身再失败就只能放弃了，不能让它掩盖真正的异常
+            // If writing the log itself fails as well then all we can do is give up; it must not be
+            // allowed to mask the real exception
         }
     }
 }

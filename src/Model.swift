@@ -1,14 +1,14 @@
-// Sundial — 桌面宠物，显示 Claude Code 用量与会话状态
-// 本文件由 main.swift 拆分而来
+// Sundial — a desktop pet showing Claude Code usage and session state
+// This file was split out of main.swift
 
 import AppKit
 import Foundation
 
-// MARK: - 数据模型
+// MARK: - Data model
 
 struct UsageRow {
     let label: String
-    let percent: Int          // 已用百分比；可能 >100（超限），圆环自己夹到一圈
+    let percent: Int          // percentage used; may be >100 (over the limit), the ring clamps itself to one turn
     let resetAt: Date?
     let priority: Int
 }
@@ -17,26 +17,29 @@ final class PetModel {
     var rows: [UsageRow] = []
     var tier: String = ""
     var lastFetch: Date?
-    var errorMsg: String?      // 有错误时置文案；成功后清空
-    var asleep: Bool = false   // 拿不到数据时宠物睡觉
+    var errorMsg: String?      // set to a message when there is an error; cleared once it succeeds
+    var asleep: Bool = false   // the pet sleeps when the data can't be fetched
     var loading: Bool = true
-    var needsLogin: Bool = false  // 没有可用令牌，等用户登录
+    var needsLogin: Bool = false  // no usable token, waiting for the user to log in
     var sessions: [SessionActivity] = []
-    var hovered: Bool = false     // 鼠标悬停时展开详情
-    var detailsPinned: Bool = false  // 菜单里固定展开（不依赖鼠标）
+    var hovered: Bool = false     // expand the details while the mouse hovers
+    var detailsPinned: Bool = false  // pinned open from the menu (doesn't depend on the mouse)
 
     var anyBusy: Bool { sessions.contains { $0.busy } }
 
-    /// 正在跑的 + 已完成但还没看的（未读会一直留着，直到点掉或该会话又开始工作）
+    /// The ones currently running + the ones finished but not yet looked at (an unread one stays around
+    /// until it is clicked away or that session starts working again)
     var visibleSessions: [SessionActivity] {
         Array(sessions.filter { $0.busy || $0.unread }.prefix(PetView.maxBlocks))
     }
 
     var maxPercent: Int { rows.map { $0.percent }.max() ?? 0 }
 
-    /// 圆环用：外环=5小时，内环=每周（全部模型）；取不到就按顺序退化
-    /// 圆环：外环=5小时；内环=用得最多的那条每周限额（可能是全部模型，
-    /// 也可能是某个模型的专属周限额——后者更紧时必须显示它，否则会误导）
+    /// For the rings: outer ring = 5 hours, inner ring = weekly (all models); if they can't be found it
+    /// falls back to source order
+    /// Rings: outer ring = 5 hours; inner ring = whichever weekly limit is used the most (it may be the
+    /// all-models one, or a weekly limit specific to one model — when the latter is tighter it has to be
+    /// shown, otherwise it misleads)
     var ringRows: (outer: UsageRow?, inner: UsageRow?) {
         let outer = rows.first { $0.label.contains("5 小时") } ?? rows.first
         let weeklies = rows.filter { $0.label.hasPrefix("每周") }

@@ -1,8 +1,8 @@
-// Sundial — 程序入口（Swift 只允许 main.swift 出现顶层语句）
+// Sundial — programme entry point (Swift only allows top-level statements in main.swift)
 
 import AppKit
 
-// MARK: - 入口
+// MARK: - Entry point
 
 let app = NSApplication.shared
 let delegate = AppDelegate()

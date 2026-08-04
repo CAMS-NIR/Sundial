@@ -1,14 +1,16 @@
-// Sundial — 桌面宠物，显示 Claude Code 用量与会话状态
-// 本文件由 main.swift 拆分而来
+// Sundial — a desktop pet that shows Claude Code usage and session state
+// This file was split out of main.swift
 
 import AppKit
 import Foundation
 import ServiceManagement
 
-// MARK: - 窗口
+// MARK: - Window
 
-/// 玻璃视图默认把命中测试拦在自己身上，导致拖动/双击/点击已读全部失效。
-/// 转发进 contentView；落空时回退 super（空白处仍返回自己，performDrag 可用）。
+/// By default the glass view keeps hit testing to itself, which breaks dragging,
+/// double-clicking and click-to-mark-read entirely.
+/// So forward into contentView; fall back to super when that misses (blank areas still
+/// return self, so performDrag keeps working).
 @available(macOS 26.0, *)
 final class PetGlassView: NSGlassEffectView {
     override func hitTest(_ point: NSPoint) -> NSView? {
@@ -22,13 +24,13 @@ final class PetGlassView: NSGlassEffectView {
 }
 
 final class PetWindow: NSWindow {
-    // 不接受 key：点击时不抢当前 App 的焦点，也就不会画出那圈焦点边框。
-    // 拖动、双击、右键菜单都不依赖 key 状态；登录输入框是独立的 NSAlert 窗口，不受影响。
+    // Never becomes key: clicking it doesn't steal focus from the current app, so it never draws that focus ring.
+    // Dragging, double-clicking and the right-click menu don't depend on key state; the login field is a separate NSAlert window and is unaffected.
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
 }
 
-// MARK: - 应用
+// MARK: - App
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     let model = PetModel()
@@ -40,35 +42,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     let watcher = ActivityWatcher()
     var activityTimer: Timer?
     private var activityPolling = false
-    private var anchorTopY: CGFloat?       // 用户选定的窗口顶边位置
-    private var anchorLeftX: CGFloat?      // 用户选定的窗口左边位置
-    private var hoverSince: Date?          // 悬停起点，停留够久就当你看过了
+    private var anchorTopY: CGFloat?       // top edge position the user chose for the window
+    private var anchorLeftX: CGFloat?      // left edge position the user chose for the window
+    private var hoverSince: Date?          // when the hover started; linger long enough and we count it as you having seen it
     private var seenWhileHovering = Set<String>()
-    private var glassAny: NSView?          // NSGlassEffectView（macOS 26+）
+    private var glassAny: NSView?          // NSGlassEffectView (macOS 26+)
     private var fallbackEffectView: NSVisualEffectView?
-    private var statusItem: NSStatusItem?      // 菜单栏入口：窗口找不到时的退路
-    private var statusSpin: CGFloat = 0        // 状态栏小太阳的转角
+    private var statusItem: NSStatusItem?      // menu bar entry point: the way back when the window can't be found
+    private var statusSpin: CGFloat = 0        // rotation angle of the little sun in the status bar
     private var statusTimer: Timer?
 
-    static let expandedRadius: CGFloat = 26   // 展开态圆角；收起态用半径变成圆形
+    static let expandedRadius: CGFloat = 26   // corner radius when expanded; when collapsed the radius turns it into a circle
 
     @available(macOS 26.0, *)
     private var glassView: NSGlassEffectView? {
         get { glassAny as? NSGlassEffectView }
         set { glassAny = newValue }
     }
-    private var adjustingHeight = false    // 程序化改高度时不当成用户拖动
+    private var adjustingHeight = false    // don't treat a programmatic height change as a user drag
 
     static let winW: CGFloat = 198
-    static let winH: CGFloat = 182   // 初始（加载态）高度，之后随内容自适应
+    static let winH: CGFloat = 182   // initial (loading) height; after that it adapts to the content
     static let posKey = "PetWindowTopLeft"
-    private var loginInProgress = false   // 只在主线程读写，防止并发登录互相覆盖
+    private var loginInProgress = false   // only read and written on the main thread, so concurrent logins can't overwrite each other
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
 
-        // .accessory 下不显示菜单栏，但 ⌘X/C/V/A 需要主菜单才能路由到第一响应者，
-        // 否则登录框里粘贴不了授权码。这里的菜单项 target 必须留空，走响应链。
+        // Under .accessory there is no menu bar, but ⌘X/C/V/A need a main menu before they
+        // can be routed to the first responder; without it you can't paste the authorisation
+        // code into the login box. The target of these menu items must be left empty so they travel the responder chain.
         let mainMenu = NSMenu()
         mainMenu.addItem(NSMenuItem())
         let editItem = NSMenuItem()
@@ -86,12 +89,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                            styleMask: [.borderless], backing: .buffered, defer: false)
         window.isOpaque = false
         window.backgroundColor = .clear
-        // 不要系统投影：窗口一直在伸缩变形，投影会残留成一圈方框黑边。
-        // Liquid Glass 自带边缘高光与层次，不靠它也浮得起来。
-        // 不用系统投影：窗口一直在伸缩变形，投影会残留成方框黑边；
-        // 玻璃自带边缘高光，足够浮起来
+        // No system shadow: the window is constantly stretching and reshaping, and the shadow
+        // leaves behind a black rectangular outline.
+        // Liquid Glass comes with its own edge highlight and sense of depth, so it floats fine without one.
+        // No system shadow: the window is constantly stretching and reshaping, and the shadow
+        // leaves behind a black rectangular outline;
+        // the glass has its own edge highlight, which is enough to make it float
         window.hasShadow = false
-        // 不锁外观：跟随系统明暗切换，文字用 labelColor 系列自动翻转
+        // Don't pin the appearance: follow the system light/dark switch, and let the text use the labelColor family so it flips automatically
         window.level = Self.abovePopups ? .statusBar : .floating
         window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         window.isMovableByWindowBackground = false
@@ -101,15 +106,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         petView.autoresizingMask = [.width, .height]
         petView.focusRingType = .none
 
-        // 卡片本体 = 系统的 Liquid Glass。
+        // The card itself = the system's Liquid Glass.
         //
-        // 关于 contentView：WWDC25 session 310 要求把内容放进 contentView，由 AppKit
-        // 代做可读性处理。实测（同一背景 A/B）：一旦设了 contentView，AppKit 会为
-        // 铺满整块的密集文字加一层可读性背衬，玻璃被压成几乎不透明的深色板——
-        // 背后内容完全透不过来，失去折射，也就没有液态玻璃的观感。
+        // About contentView: WWDC25 session 310 asks you to put the content inside
+        // contentView and let AppKit handle legibility for you. Measured (A/B over the
+        // same background): the moment contentView is set, AppKit adds a legibility
+        // backing behind the dense text that fills the whole card, and the glass is
+        // flattened into an almost opaque dark slab — nothing behind it comes through
+        // at all, the refraction is gone, and with it any sense of liquid glass.
         //
-        // 因此这里改用兄弟视图叠放，换回真正的玻璃质感；代价是可读性要自己保证，
-        // 这一点已通过语义色（labelColor 系列，随明暗自动翻转）+ 实测对比度解决。
+        // So we stack sibling views instead and get the real glass look back; the price is
+        // that legibility becomes our own problem, which is solved by semantic colours
+        // (the labelColor family, which flips automatically with light/dark) plus measured contrast.
         if #available(macOS 26.0, *) {
             let root = NSView(frame: NSRect(x: 0, y: 0,
                                             width: Self.winW, height: Self.winH))
@@ -136,8 +144,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             ve.layer?.masksToBounds = true
             ve.autoresizingMask = [.width, .height]
 
-            // petView 必须和毛玻璃平级：若做成子视图，「降低透明度」隐藏毛玻璃时
-            // 会把整个界面一起隐藏，App 直接消失
+            // petView must be a sibling of the blur view: as a subview, hiding the blur for
+            // "Reduce transparency" would hide the whole interface with it and the app would simply disappear
             let root = NSView(frame: NSRect(x: 0, y: 0,
                                             width: Self.winW, height: Self.winH))
             root.autoresizingMask = [.width, .height]
@@ -163,14 +171,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             object: nil, queue: .main) { [weak self] _ in
                 self?.applyAccessibilitySettings()
             }
-        // 显示器休眠 / 唤醒时停开动画，别在黑屏时白烧电
+        // Stop and restart the animation when the displays sleep / wake; don't burn power for nothing on a black screen
         NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.screensDidSleepNotification, object: nil, queue: .main) {
                 [weak self] _ in
                 guard let self else { return }
                 self.screensAsleep = true
                 self.setAnimating(false, fps: 0)
-                self.activityTimer?.invalidate()   // 黑屏时磁盘轮询也停
+                self.activityTimer?.invalidate()   // stop the disk polling too while the screen is off
                 self.activityTimer = nil
             }
         NSWorkspace.shared.notificationCenter.addObserver(
@@ -187,7 +195,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let fetch = Timer(timeInterval: 15, repeats: true) { [weak self] _ in
             self?.fetcher.tick()
         }
-        fetch.tolerance = 3            // 允许系统合并唤醒，省电
+        fetch.tolerance = 3            // let the system coalesce wake-ups, which saves power
         RunLoop.main.add(fetch, forMode: .common)
         fetchTimer = fetch
         fetcher.tick()
@@ -209,13 +217,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self.adjustWindowHeight()
             self.petView.needsDisplay = true
         }
-        // 每帧跟随展开进度调整窗口高度，做出连续的伸缩动画
+        // Adjust the window height every frame to follow the expansion progress, which gives a continuous stretch animation
         petView.onHoverProgress = { [weak self] in self?.adjustWindowHeight() }
         petView.onHoverChange = { [weak self] hovering in
             guard let self, self.model.hovered != hovering else { return }
             self.model.hovered = hovering
             self.hoverSince = hovering ? Date() : nil
-            if !hovering { self.flushSeen() }   // 移开时把刚看过的清成已读
+            if !hovering { self.flushSeen() }   // when the mouse moves away, mark what you just looked at as read
             self.petView.needsDisplay = true
         }
 
@@ -224,21 +232,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                                                object: window)
     }
 
-    /// 完全展开时的高度：顶行（太阳+仪表）+ 会话块 +（悬停）详情行
+    /// Height when fully expanded: top row (sun + gauges) + session blocks + (on hover) detail rows
     private func expandedHeight() -> CGFloat {
-        var h: CGFloat = 10 + PetView.topRowH + 2   // 卡片顶部内边距 + 顶行
+        var h: CGFloat = 10 + PetView.topRowH + 2   // card top padding + top row
         if model.loading {
             h += 28
         } else if model.rows.isEmpty, model.errorMsg != nil,
                   (petView?.blocksHeight ?? 0) <= 0 {
-            // 只有在连会话块都没有时，错误提示才独占整张卡片
+            // Only when there aren't even any session blocks does the error message get the whole card to itself
             h += 56 + (model.needsLogin ? 36 : 0)
         } else {
-            // 用视图里那个连续变化的高度，不能直接数块数：块数是离散的，
-            // 最后一块一消失窗口会在一帧里掉 50pt，缓动全白做
+            // Use the continuously varying height from the view; you can't just count the
+            // blocks, because the count is discrete — the moment the last block disappears
+            // the window drops 50pt in a single frame and all the easing is wasted
             h += petView?.resetLineHeight ?? 0
             h += petView?.blocksHeight ?? 0
-            // 详情区高度按展开进度连续插值，窗口才能平滑伸缩
+            // The detail area's height is interpolated continuously against the expansion progress, so the window can stretch smoothly
             let p = petView?.hoverProgress ?? 0
             if p > 0.001 {
                 let detailH = PetView.blockGap + 2 + 19
@@ -246,10 +255,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 h += detailH * p
             }
         }
-        return h + 10                               // 卡片底部内边距
+        return h + 10                               // card bottom padding
     }
 
-    /// 实际窗口尺寸：在「只剩太阳」与「完整卡片」之间按展开进度插值
+    /// The actual window size: interpolated by expansion progress between "just the sun" and "the full card"
     func desiredSize() -> NSSize {
         let e = petView?.expandProgress ?? 1
         let side = PetView.compactSide
@@ -260,21 +269,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func adjustWindowHeight() {
         let size = desiredSize()
         let f = window.frame
-        // 玻璃的形状与染色必须**先于** guard 更新：等待输入不改变窗口尺寸
-        // （会话还在 busy，块不增不减），guard 会直接 return，于是「等你选择时
-        // 玻璃亮起来」该亮时不亮；而一旦被某次尺寸变化刷上了，等待解除后同样
-        // 退不回去，最长能挂到未读过期（10 分钟）。
+        // The glass shape and tint must be updated **before** the guard: waiting for input
+        // doesn't change the window size (the session is still busy, so blocks are neither
+        // added nor removed), the guard would return straight away, and so "the glass lights
+        // up while it waits for you to choose" wouldn't light up when it should; and once
+        // some other size change had painted it on, it would equally fail to go back after
+        // the wait ended, potentially hanging around until the unread entry expires (10 minutes).
         applyGlassShape(for: f.size)
         guard abs(f.height - size.height) > 0.25
             || abs(f.width - size.width) > 0.25 else { return }
         if anchorTopY == nil { anchorTopY = f.maxY }
         if anchorLeftX == nil { anchorLeftX = f.minX }
-        var newY = anchorTopY! - size.height   // 顶边锚定在用户选的位置，向下伸缩
-        var newX = anchorLeftX!                // 左边锚定，向右展开
+        var newY = anchorTopY! - size.height   // top edge anchored where the user put it, stretches downwards
+        var newX = anchorLeftX!                // left edge anchored, expands to the right
         if let screen = window.screen ?? NSScreen.main {
             let vf = screen.visibleFrame
-            newY = max(newY, vf.minY)                       // 贴底时临时向上撑开
-            newX = min(newX, vf.maxX - size.width)          // 贴右时向左让出
+            newY = max(newY, vf.minY)                       // when up against the bottom, push upwards for the time being
+            newX = min(newX, vf.maxX - size.width)          // when up against the right, give way to the left
             newX = max(newX, vf.minX)
         }
         adjustingHeight = true
@@ -282,7 +293,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                                width: size.width, height: size.height), display: true)
         adjustingHeight = false
         applyGlassShape(for: size)
-        // setFrame 不会替静止的光标补发 mouseExited：窗口收缩后手动校准悬停态
+        // setFrame won't send a make-up mouseExited on behalf of a stationary cursor: recalibrate the hover state by hand after the window shrinks
         if model.hovered, !window.frame.contains(NSEvent.mouseLocation) {
             model.hovered = false
             petView.needsDisplay = true
@@ -290,15 +301,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
-    /// 鼠标在桌宠上停够 1.2 秒 = 你看到了这些通知；先记下，等鼠标移开再清，
-    /// 免得块在你眼皮底下消失
+    /// The mouse resting on the pet for a full 1.2 seconds = you have seen these notifications;
+    /// note them down first and only clear them once the mouse moves away, so that blocks don't vanish right under your nose
     private func noteSeenWhileHovering() {
         guard model.hovered, let since = hoverSince,
               Date().timeIntervalSince(since) >= 1.2 else { return }
         for s in model.sessions where s.unread { seenWhileHovering.insert(s.id) }
     }
 
-    /// 鼠标离开后统一清掉刚才看过的未读
+    /// Once the mouse has left, clear all the unread items you just looked at in one go
     private func flushSeen() {
         guard !seenWhileHovering.isEmpty else { return }
         for id in seenWhileHovering {
@@ -312,28 +323,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         petView.needsDisplay = true
     }
 
-    /// 展开时是连续圆角的玻璃卡片；完全收起时**整块玻璃退场**，只剩一颗太阳浮在桌面上。
-    /// 闲着的时候没有任何信息要承载，那块底就纯属多余。
-    /// 有会话在等你输入时给玻璃一点暖色，让它自己「亮」起来
+    /// Expanded, it's a glass card with continuous corners; fully collapsed, **the whole slab of glass leaves the stage**
+    /// and only a sun is left floating on the desktop.
+    /// When it's idle there's no information to carry, so that backing is pure surplus.
+    /// When a session is waiting for your input, give the glass a touch of warm colour so it "lights up" by itself
     private func applyGlassShape(for size: NSSize) {
         let e = petView?.expandProgress ?? 1
         let compactR = min(size.width, size.height) / 2
         let radius = compactR + (Self.expandedRadius - compactR) * e
         let waiting = model.sessions.contains { $0.waiting }
-        // 常态不染色，让玻璃跟随系统明暗；等待输入时染暖色提示
+        // No tint normally, so the glass follows the system light/dark; tint it warm as a hint while waiting for input
         let tint: NSColor? = waiting ? NSColor.coralDeep.withAlphaComponent(0.24) : nil
-        // 玻璃比窗口先退场：等窗口都收到只剩太阳大小了它才开始淡，
-        // 就会看见一个明显的圆形色块「啪」地不见。0.45 之前走完，和仪表淡出同一节奏
+        // The glass leaves the stage before the window does: if it only began to fade once the
+        // window had already shrunk to sun size, you'd see an obvious round patch of colour
+        // simply snap out of existence. Finish it before 0.45, in the same rhythm as the gauges fading out
         let glassAlpha = easeInOut(max(0, min(1, e / 0.45)))
-        let noGlass = petView?.reduceTransparency ?? false   // 「降低透明度」时玻璃本就该让位
+        let noGlass = petView?.reduceTransparency ?? false   // with "Reduce transparency" the glass ought to step aside anyway
 
         if #available(macOS 26.0, *) {
             guard let g = glassView else { return }
             g.cornerRadius = radius
             if g.tintColor != tint { g.tintColor = tint }
             if abs(g.alphaValue - glassAlpha) > 0.002 { g.alphaValue = glassAlpha }
-            // 兜底：万一 NSGlassEffectView 不吃 alphaValue（它是 macOS 26 的新控件，
-            // 不保证像普通 NSView 那样响应），至少保证最后是真的没了
+            // Belt and braces: in case NSGlassEffectView doesn't honour alphaValue (it's a new
+            // control in macOS 26 and isn't guaranteed to respond the way an ordinary NSView
+            // does), at least make sure it really is gone at the end
             let gone = glassAlpha < 0.01
             if g.isHidden != (gone || noGlass) { g.isHidden = gone || noGlass }
         } else if let ve = fallbackEffectView {
@@ -344,11 +358,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
-    // MARK: 无障碍与能耗
+    // MARK: Accessibility and power use
 
     private var animating = false
 
-    /// 读取系统无障碍偏好，同步给视图并按需停掉动画
+    /// Read the system accessibility preferences, pass them on to the view and stop the animation where needed
     func applyAccessibilitySettings() {
         let ws = NSWorkspace.shared
         petView.reduceMotion = ws.accessibilityDisplayShouldReduceMotion
@@ -356,7 +370,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let reduceTransparency = ws.accessibilityDisplayShouldReduceTransparency
         petView.reduceTransparency = reduceTransparency
         if #available(macOS 26.0, *) {
-            // 「降低透明度」时玻璃必须让位给不透明背景
+            // with "Reduce transparency" the glass must give way to an opaque background
             glassView?.isHidden = reduceTransparency
         }
         fallbackEffectView?.isHidden = reduceTransparency
@@ -365,7 +379,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         petView.needsDisplay = true
     }
 
-    /// 可见就让吉祥物动起来；交互/忙碌时满帧，单纯呼吸眨眼用低帧率省电
+    /// Animate the mascot whenever it's visible; full frame rate while interacting or busy, a lower frame rate for plain breathing and blinking to save power
     func updateAnimationState() {
         let visible = NSApp.occlusionState.contains(.visible) && !screensAsleep
         guard visible else { setAnimating(false, fps: 0); return }
@@ -386,7 +400,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let anim = Timer(timeInterval: dt, repeats: true) { [weak self] _ in
             guard let self else { return }
             self.petView.advance(CGFloat(dt))
-            // 状态变化时自动切换帧率（比如开始/结束一轮思考）
+            // Switch frame rate automatically when the state changes (a round of thinking starting or finishing, say)
             let want: Double = self.petView.needsFullFrameRate ? 60 : 24
             if want != self.animFPS { self.updateAnimationState() }
         }
@@ -397,7 +411,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func startActivityTimer() {
         activityTimer?.invalidate()
-        // 窗口不可见时把轮询放慢到 5 秒，减少磁盘 I/O
+        // When the window isn't visible, slow the polling to 5 seconds to cut down disk I/O
         let visible = NSApp.occlusionState.contains(.visible)
         let t = Timer(timeInterval: visible ? 0.8 : 5.0, repeats: true) { [weak self] _ in
             self?.pollActivity()
@@ -423,18 +437,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             DispatchQueue.main.async {
                 self.activityPolling = false
                 self.model.sessions = s
-                self.adjustWindowHeight()   // 会话块数量变化会改高度
+                self.adjustWindowHeight()   // a change in the number of session blocks changes the height
                 self.petView.needsDisplay = true
             }
         }
     }
 
     @objc func windowMoved() {
-        guard !adjustingHeight else { return }   // 程序化伸缩不算拖动
+        guard !adjustingHeight else { return }   // programmatic resizing doesn't count as a drag
         anchorTopY = window.frame.maxY
         anchorLeftX = window.frame.minX
         let f = window.frame
-        // 存左上角：高度随内容变化，存底边会导致每次重启上移
+        // Store the top-left corner: the height varies with the content, so storing the bottom edge would make it creep upwards on every restart
         UserDefaults.standard.set([f.origin.x, f.maxY], forKey: Self.posKey)
     }
 
@@ -445,7 +459,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             topLeft = NSPoint(x: arr[0], y: arr[1])
         } else if let arr = UserDefaults.standard.array(forKey: "PetWindowOrigin") as? [Double],
                   arr.count == 2 {
-            topLeft = NSPoint(x: arr[0], y: arr[1] + 182)   // 旧版存的是左下角，迁移一次
+            topLeft = NSPoint(x: arr[0], y: arr[1] + 182)   // the old version stored the bottom-left corner; migrate it once
             UserDefaults.standard.removeObject(forKey: "PetWindowOrigin")
         }
         var origin: NSPoint?
@@ -467,25 +481,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if anchorLeftX == nil { anchorLeftX = window.frame.minX }
     }
 
-    // MARK: 右键菜单
+    // MARK: Right-click menu
 
-    /// 菜单栏图标：没有 Dock 图标时，这是唯一稳定的入口——
-    /// 窗口被拖到已拔掉的显示器、或用户忘了那只太阳是什么，都能从这里找回来。
+    /// Menu bar icon: with no Dock icon, this is the only reliable way in —
+    /// whether the window got dragged onto a display that has since been unplugged, or the user forgot what that sun was, this brings it back.
     static var showStatusIcon: Bool {
-        // 默认开：这是窗口找不到时唯一的退路，不该让人一装上就没有入口
+        // On by default: it's the only fallback when the window can't be found, and nobody should be left with no way in the moment they install it
         get { UserDefaults.standard.object(forKey: "PetShowStatusIcon") as? Bool ?? true }
         set { UserDefaults.standard.set(newValue, forKey: "PetShowStatusIcon") }
     }
 
     @objc func toggleStatusIcon() {
         Self.showStatusIcon.toggle()
-        // 下一轮再动：这一项可能就是从状态栏自己的菜单点的，
-        // 在菜单还没收完的时候把宿主 statusItem 拆掉不稳妥
+        // Act on the next turn of the run loop: this item may well have been clicked from the
+        // status bar's own menu, and pulling the host statusItem apart before the menu has finished closing is not safe
         DispatchQueue.main.async { [weak self] in self?.applyStatusIcon() }
     }
 
-    /// 建立或撤掉菜单栏图标。撤掉时连计时器一起停——留着的话每 1/12 秒
-    /// 还在算旋转角、还在重画图标，只是没人看得到
+    /// Set up or tear down the menu bar icon. Stop the timer along with it when tearing down —
+    /// leave it running and every 1/12 second it's still working out the rotation angle and still redrawing the icon, only with nobody able to see it
     private func applyStatusIcon() {
         if Self.showStatusIcon {
             if statusItem == nil { setUpStatusItem() }
@@ -504,8 +518,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         item.button?.image?.accessibilityDescription = "Sundial"
         item.button?.toolTip = "Sundial"
         item.menu = buildMenu(forStatusItem: true)
-        // 有会话在跑时状态栏的太阳跟着转；空闲就停在原地，别白烧电。
-        // 12fps 对菜单栏这么小的图标足够，再高看不出差别
+        // The sun in the status bar spins along while a session is running; when idle it stays
+        // put rather than burning power for nothing.
+        // 12fps is plenty for an icon this small in the menu bar; any higher and you can't tell the difference
         let t = Timer(timeInterval: 1.0 / 12, repeats: true) { [weak self] _ in
             guard let self, let btn = self.statusItem?.button else { return }
             let busy = self.model.anyBusy && !self.model.asleep
@@ -514,7 +529,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 self.statusSpin += 0.9 / 12
                 while self.statusSpin > .pi * 2 { self.statusSpin -= .pi * 2 }
             } else {
-                self.statusSpin = 0          // 停下时回正，免得歪着不动
+                self.statusSpin = 0          // straighten it up when it stops, so it isn't left frozen at an angle
             }
             btn.image = statusSunImage(spin: self.statusSpin, asleep: !busy)
             btn.image?.accessibilityDescription = "Sundial"
@@ -526,22 +541,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         statusItem = item
     }
 
-    /// 把桌宠移回主屏可见区域
+    /// Move the pet back into the visible area of the main screen
     @objc func recenterWindow() {
         guard let vf = (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame else { return }
         let f = window.frame
         anchorLeftX = vf.maxX - f.width - 24
         window.setFrameOrigin(NSPoint(x: anchorLeftX!, y: vf.minY + 60))
-        anchorTopY = window.frame.maxY   // 用移动后的真实顶边，避免下次伸缩跳位
+        anchorTopY = window.frame.maxY   // use the real top edge after the move, so the next resize doesn't jump
         window.orderFrontRegardless()
         windowMoved()
     }
 
-    /// 右键菜单与菜单栏菜单共用一套条目
+    /// The right-click menu and the menu bar menu share one set of items
     func buildMenu(forStatusItem: Bool) -> NSMenu {
         let menu = NSMenu()
-        // 版本号放在菜单最上面：有人报问题时，第一句话就能问"菜单里写的多少"。
-        // 取自 Info.plist，而它由 build.sh 从仓库根的 VERSION 写入——单一来源
+        // Version number right at the top of the menu: when someone reports a problem, the first thing you can ask is "what does the menu say".
+        // Taken from Info.plist, which build.sh in turn fills in from VERSION at the repo root — a single source of truth
         let ver = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString")
             as? String ?? "?"
         let title = NSMenuItem(title: "Sundial \(ver)", action: nil, keyEquivalent: "")
@@ -556,7 +571,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         menu.addItem(.separator())
         menu.addItem(withTitle: "立即刷新", action: #selector(refreshNow), keyEquivalent: "")
-        // 悬停之外的等价入口：不用鼠标停在窗口上也能看到明细
+        // The equivalent of hovering by another route: see the breakdown without holding the mouse over the window
         let det = NSMenuItem(title: "显示用量明细", action: #selector(toggleDetails),
                              keyEquivalent: "")
         det.state = model.detailsPinned ? .on : .off
@@ -591,7 +606,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func menuNeedsUpdate(_ menu: NSMenu) {
         guard menu === statusItem?.menu else { return }
-        // 不能在这里替换 statusItem.menu（正在打开的就是它）——原地重建条目
+        // We can't swap out statusItem.menu here (it's the very one being opened) — rebuild the items in place
         menu.removeAllItems()
         for item in buildMenu(forStatusItem: true).items {
             item.menu?.removeItem(item)
@@ -609,10 +624,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         NSMenu.popUpContextMenu(buildMenu(forStatusItem: false), with: event, for: petView)
     }
 
-    /// 置顶层级：默认 .floating；开启后升到 .statusBar(25)。
-    /// 不用 .popUpMenu(101)——那会盖住菜单栏，也会盖住本 App 自己的模态登录框（模态层级只有 8）。
-    /// 玻璃通透度：false = regular（磨砂，任何背景都清晰）；true = clear（更透，
-    /// Apple 建议仅用于富媒体背景之上，文字多时可读性会下降）
+    /// Always-on-top level: .floating by default; raised to .statusBar (25) once enabled.
+    /// Not .popUpMenu (101) — that would cover the menu bar, and would also cover this app's own modal login box (the modal level is only 8).
+    /// Glass clarity: false = regular (frosted, legible over any background); true = clear (more
+    /// transparent; Apple recommends it only over rich media backgrounds, and legibility drops when there's a lot of text)
     static var clearGlass: Bool {
         get { UserDefaults.standard.bool(forKey: "PetClearGlass") }
         set { UserDefaults.standard.set(newValue, forKey: "PetClearGlass") }
@@ -645,7 +660,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc func quit() { NSApp.terminate(nil) }
 
-    // MARK: 登录
+    // MARK: Login
 
     @objc func signOut() {
         fetcher.signOutByUser()
@@ -659,13 +674,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         petView.needsDisplay = true
     }
 
-    /// 同一次运行内复用同一个 verifier：每次点登录都换新的话，
-    /// 用户从上一个授权页（浏览器很容易留着旧标签）复制的码就永远对不上，
-    /// 表现为「反复登录失败」。登录成功后才作废重来。
+    /// Reuse the same verifier for the whole run: if a new one were generated on every click of
+    /// Log in, a code the user copied from the previous authorisation page (and browsers very
+    /// readily keep old tabs around) would never match, which shows up as "login keeps failing".
+    /// Only discard it and start afresh once login has succeeded.
     private var loginVerifier: String?
 
     @objc func startLogin() {
-        guard !loginInProgress else { return }   // 只在主线程读写
+        guard !loginInProgress else { return }   // only read and written on the main thread
         loginInProgress = true
         let verifier = loginVerifier ?? OAuth.newVerifier()
         loginVerifier = verifier
@@ -674,7 +690,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             return
         }
         NSWorkspace.shared.open(url)
-        // 等浏览器起来再弹输入框，避免抢焦点
+        // Wait for the browser to come up before showing the input box, to avoid stealing focus
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
             self.promptForCode(verifier: verifier)
         }
@@ -698,7 +714,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         alert.accessoryView = field
         alert.window.initialFirstResponder = field
         var response: NSApplication.ModalResponse = .cancel
-        withLoweredWindow { response = alert.runModal() }   // 别压在自己的登录框上
+        withLoweredWindow { response = alert.runModal() }   // don't sit on top of our own login box
         guard response == .alertFirstButtonReturn else {
             loginInProgress = false
             return
@@ -720,7 +736,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 let saved = TokenStore.save(token)
                 DispatchQueue.main.async {
                     self.loginInProgress = false
-                    self.loginVerifier = nil     // 成功了才换新的
+                    self.loginVerifier = nil     // only swap in a new one once it has succeeded
                     self.fetcher.adoptToken(token)
                     self.model.needsLogin = false
                     self.model.errorMsg = nil
@@ -733,9 +749,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 DispatchQueue.main.async {
                     self.loginInProgress = false
                     self.model.loading = false
-                    if !self.fetcher.hasToken {   // 别把已经成功的登录改回未登录
+                    if !self.fetcher.hasToken {   // don't flip a login that already succeeded back to logged-out
                         self.model.needsLogin = true
-                        self.model.rows = []      // 不清空则登录卡片和按钮不会渲染
+                        self.model.rows = []      // without clearing this, the login card and its button won't render
                         self.model.tier = ""
                         self.model.errorMsg = "登录失败\n双击我重试"
                         self.model.asleep = true
@@ -758,7 +774,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         withLoweredWindow { _ = a.runModal() }
     }
 
-    /// 弹模态框期间把桌宠降回普通层级，否则置顶的它会压在对话框上面
+    /// Drop the pet back to the normal window level while a modal is up, otherwise, being always on top, it sits over the dialog
     func withLoweredWindow(_ body: () -> Void) {
         let saved = window.level
         window.level = .normal
@@ -766,10 +782,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         body()
     }
 
-    // MARK: 开机自启
+    // MARK: Launch at login
 
-    // 开机自启：用 SMAppService（macOS 13+ 官方接口），
-    // 手写 LaunchAgent plist 会指向旧路径、App 移动后失效，也不受系统「登录项」管理
+    // Launch at login: use SMAppService (the official API, macOS 13+),
+    // a hand-written LaunchAgent plist points at the old path, breaks once the app is moved, and isn't managed by the system's Login Items either
     var autostartEnabled: Bool { SMAppService.mainApp.status == .enabled }
 
     @objc func toggleAutostart() {

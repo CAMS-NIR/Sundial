@@ -1,19 +1,21 @@
 #!/bin/zsh
-# 在 Mac 上交叉打包 Windows 版 Sundial
+# Cross-package the Windows build of Sundial on a Mac
 #
-#   ./build.sh            打包 win-x64（Intel/AMD 64 位，绝大多数 Windows 机器）
-#   ./build.sh arm64      打包 win-arm64（骁龙 X / Surface Pro 11 这类）
-#   ./build.sh check      只跑验证：Core 逻辑 + 离屏渲染出 PNG
+#   ./build.sh            package win-x64 (Intel/AMD 64-bit, the vast majority of Windows machines)
+#   ./build.sh arm64      package win-arm64 (Snapdragon X / Surface Pro 11 and the like)
+#   ./build.sh check      run the checks only: Core logic + off-screen render to a PNG
 #
-# 需要 .NET SDK：brew install dotnet
+# Requires the .NET SDK: brew install dotnet
 set -e
 cd "$(dirname "$0")"
 export DOTNET_CLI_TELEMETRY_OPTOUT=1 DOTNET_NOLOGO=1
 command -v dotnet >/dev/null || export PATH="/opt/homebrew/bin:$PATH"
 
 MODE="${1:-x64}"
-# 版本号的唯一来源是仓库根的 VERSION 文件（与 macOS 版共用）。
-# 以前 Info.plist 和 csproj 各写各的，改一边忘另一边是迟早的事
+# The single source of truth for the version number is the VERSION file at the repo root
+# (shared with the macOS build).
+# Info.plist and the csproj each used to carry their own copy, and changing one and
+# forgetting the other was only a matter of time
 VERSION="$(cat ../VERSION 2>/dev/null || echo 0.0.0)"
 
 if [[ "$MODE" == "check" ]]; then
@@ -41,7 +43,7 @@ dotnet publish src/Sundial.App/Sundial.App.csproj \
   -p:EnableCompressionInSingleFile=true \
   -o "$OUT" | tail -2
 
-rm -f "$OUT"/*.pdb                      # 调试符号不用发出去
+rm -f "$OUT"/*.pdb                      # no need to ship the debug symbols
 cp INSTALL.txt "$OUT/" 2>/dev/null || true
 
 echo "✓ 产物：$PWD/$OUT/Sundial.exe（$(du -h "$OUT/Sundial.exe" | cut -f1)）"

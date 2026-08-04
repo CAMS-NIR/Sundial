@@ -1,19 +1,22 @@
 #!/bin/zsh
-# 编译并打包 Sundial.app
+# Compile and package Sundial.app
 #
-#   ./build.sh              本机调试用（仅 arm64，ad-hoc 签名，装到桌面）
-#   ./build.sh release      发布用（通用二进制 + Developer ID 签名 + 公证）
+#   ./build.sh              for debugging on this machine (arm64 only, ad-hoc signature, installed to the Desktop)
+#   ./build.sh release      for release (universal binary + Developer ID signature + notarisation)
 #
-# 发布前需先存好公证凭据（只需一次，密码由你自己输入，不经过脚本）：
+# Before releasing you first need to store the notarisation credentials (once only; you type
+# the password yourself, it never goes through this script):
 #   xcrun notarytool store-credentials solaris-notary \
-#       --apple-id <你的AppleID> --team-id <TeamID> --password <App专用密码>
+#       --apple-id <your Apple ID> --team-id <TeamID> --password <app-specific password>
 
 set -e
 cd "$(dirname "$0")"
 
 APP_NAME="Sundial"
-# 版本号的唯一来源是仓库根的 VERSION 文件，两个平台都从这里读。
-# 以前 Info.plist 和 csproj 各写各的，改一边忘另一边是迟早的事
+# The single source of truth for the version number is the VERSION file at the repo root;
+# both platforms read it from there.
+# Info.plist and the csproj each used to carry their own copy, and changing one and
+# forgetting the other was only a matter of time
 VERSION="$(cat "$(dirname "$0")/../VERSION" 2>/dev/null || echo 0.0.0)"
 BUNDLE_ID="com.cams-nir.sundial"
 MIN_MACOS="13.0"
@@ -21,31 +24,38 @@ NOTARY_PROFILE="solaris-notary"
 MODE="${1:-debug}"
 [[ "$MODE" == "share" ]] && UNIVERSAL=1 || UNIVERSAL=0
 
-# main.swift 必须放最后（Swift 要求入口文件的顶层语句最后编译）
+# main.swift must come last (Swift requires the entry file's top-level statements to be compiled last)
 SRC=(${(f)"$(ls *.swift | grep -v '^main.swift$')"} main.swift)
 
-# 编译与签名一律在临时目录里做，**不能在桌面上做**。
-# 桌面开着 iCloud 同步（xattr 里能看到 com.apple.fileprovider.fpfs#P），
-# 文件提供程序会异步给 .app 重新打上 com.apple.FinderInfo，和 codesign 抢时间——
-# 于是 codesign 间歇性报「resource fork, Finder information ... not allowed」，
-# 清多少次 xattr 都没用，因为它是在清完之后才被加回去的。
-# 产物统一落在仓库根目录下，而不是写死的 ~/Desktop/Sundial——
-# 别人把仓库克隆到哪儿，产物就出现在哪儿；写死的话不但找不到，
-# 还可能覆盖掉别人桌面上同名的目录
+# Compiling and signing always happen in a temporary directory, and **must not be done on
+# the Desktop**.
+# The Desktop has iCloud sync switched on (you can see com.apple.fileprovider.fpfs#P in the
+# xattrs), and the file provider asynchronously re-stamps com.apple.FinderInfo onto the .app,
+# racing codesign —
+# so codesign intermittently reports "resource fork, Finder information ... not allowed",
+# and no amount of clearing the xattrs helps, because it gets added back after you have
+# cleared it.
+# The build products all land under the repo root rather than a hard-coded ~/Desktop/Sundial —
+# wherever someone clones the repo, that is where the products turn up; hard-coding the path
+# would not only mean they cannot be found, it could also overwrite a directory of the same
+# name on someone else's Desktop
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 
-# 打包成 zip。必须先剥扩展属性再 ditto：
-# macOS 15 起会给每个文件挂 com.apple.provenance，而 `ditto -c -k` 会把扩展属性
-# 编码成 AppleDouble（._Contents、._Info.plist 之类）一并塞进 zip。别人用 unzip
-# 解开时这些 ._* 会落进 .app 里，封签当场失效——codesign 报
-# 「a sealed resource is missing or invalid」，而签名坏掉的 App 在新版 macOS 上
-# 是根本打不开的，「仍要打开」也救不回来。
-# --norsrc --noextattr 是第二道保险。剥属性放在签名之后：签名存在 Mach-O 和
-# _CodeSignature 里，不在扩展属性里，剥掉不影响封签（下面会验证）
+# Package it into a zip. The extended attributes must be stripped before ditto runs:
+# from macOS 15 onwards every file gets a com.apple.provenance attribute, and `ditto -c -k`
+# encodes extended attributes as AppleDouble files (._Contents, ._Info.plist and the like)
+# and stuffs them into the zip as well. When someone unpacks it with unzip, those ._* files
+# land inside the .app and the seal breaks then and there — codesign reports
+# "a sealed resource is missing or invalid", and an app whose signature is broken simply
+# will not open at all on recent macOS; even "Open Anyway" cannot rescue it.
+# --norsrc --noextattr is the second line of defence. Stripping the attributes comes after
+# signing: the signature lives in the Mach-O and in _CodeSignature, not in the extended
+# attributes, so stripping them does not affect the seal (verified below)
 zip_app() {
   xattr -cr "$1"
   ditto -c -k --keepParent --norsrc --noextattr "$1" "$2"
-  # 验证这一步不是可选的：把 zip 解开重新验签，通过了才算真的能发出去
+  # This verification step is not optional: unpack the zip again and re-verify the signature;
+  # only once that passes is the package really fit to ship
   local t="$(mktemp -d)"
   ditto -x -k "$2" "$t"
   if ! codesign --verify --deep --strict "$t/$(basename "$1")" 2>/dev/null; then
@@ -73,7 +83,7 @@ else
          -o "$BUILD/$APP_NAME" "${SRC[@]}"
   DEST="$REPO/$APP_NAME.app"
 fi
-APP="$BUILD/$APP_NAME.app"      # 组装与签名都在这里，签完再搬到桌面
+APP="$BUILD/$APP_NAME.app"      # assembly and signing both happen here; once signed it is moved to the Desktop
 
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
@@ -83,14 +93,16 @@ cp Info.plist "$APP/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $VERSION" \
                         "$APP/Contents/Info.plist" >/dev/null
 cp "$BUILD/$APP_NAME" "$APP/Contents/MacOS/$APP_NAME"
-# 图标（由 图标生成器.swift 生成，改了太阳要重跑一次那个脚本）
-# Sundial.icns 是「当前启用的那份」，由 icon/make-icons.sh 产出、不入库；
-# 新克隆下来时它不存在，回退到浅色版
+# Icon (generated by 图标生成器.swift — if you change the sun you have to run that script again)
+# Sundial.icns is "whichever one is currently enabled"; it is produced by icon/make-icons.sh
+# and is not checked in. On a fresh clone it does not exist, so fall back to the light version
 ICON="$APP_NAME.icns"
 [[ -f "$ICON" ]] || ICON="$APP_NAME-light.icns"
 cp "$ICON" "$APP/Contents/Resources/$APP_NAME.icns"
-# 清掉扩展属性：cp 会把源文件的 xattr 一起带过来（.icns 常带着 Finder 信息）。
-# 注意 com.apple.provenance 清不掉，但 codesign 不介意它，介意的是 FinderInfo
+# Clear the extended attributes: cp brings the source file's xattrs along with it
+# (.icns files often carry Finder information).
+# Note that com.apple.provenance cannot be cleared, but codesign does not mind that one —
+# the one it minds is FinderInfo
 clean_xattr() { xattr -cr "$1" 2>/dev/null || true; }
 clean_xattr "$APP"
 
@@ -103,7 +115,7 @@ if [[ "$MODE" == "release" ]]; then
     exit 1
   fi
   echo "签名：$ID"
-  # runtime = 强化运行时，公证的硬性要求
+  # runtime = hardened runtime, a hard requirement for notarisation
   clean_xattr "$APP"
   codesign --force --options runtime --timestamp \
            --identifier "$BUNDLE_ID" --sign "$ID" "$APP"
@@ -112,7 +124,7 @@ if [[ "$MODE" == "release" ]]; then
   zip_app "$APP" "$ZIP"
   echo "提交公证（几十秒到几分钟）..."
   xcrun notarytool submit "$ZIP" --keychain-profile "$NOTARY_PROFILE" --wait
-  xcrun stapler staple "$APP"         # 把公证票据钉进 App，离线也能验证
+  xcrun stapler staple "$APP"         # staple the notarisation ticket into the app so it verifies offline too
 
   rm -f "$ZIP"
   OUT="$REPO/dist/$APP_NAME.zip"
@@ -122,12 +134,13 @@ if [[ "$MODE" == "release" ]]; then
 elif [[ "$MODE" == "debug" ]]; then
   clean_xattr "$APP"
   codesign --force --sign - "$APP"
-  # 签完再搬到桌面：iCloud 之后怎么打标记都不影响已经嵌进去的签名
+  # Move it to the Desktop only after signing: whatever iCloud stamps on it afterwards cannot
+  # affect the signature that is already embedded inside
   rm -rf "$DEST" && ditto "$APP" "$DEST"
   echo "完成：$DEST"
 fi
 
-# share 模式：通用二进制 + ad-hoc 签名 + 打包，给没有开发者帐号时用
+# share mode: universal binary + ad-hoc signature + packaging, for when you have no developer account
 if [[ "$MODE" == "share" ]]; then
   clean_xattr "$APP"
   codesign --force --sign - "$APP"

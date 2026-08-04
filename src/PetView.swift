@@ -1,9 +1,9 @@
-// Sundial — 桌面宠物，显示 Claude Code 用量与会话状态
-// 本文件由 main.swift 拆分而来
+// Sundial — a desktop pet that shows Claude Code usage and session status
+// This file was split out of main.swift
 
 import AppKit
 
-// MARK: - 桌宠视图
+// MARK: - Pet view
 
 final class PetView: NSView {
     let model: PetModel
@@ -12,23 +12,24 @@ final class PetView: NSView {
     var onHoverChange: ((Bool) -> Void)?
     var onMarkRead: ((String) -> Void)?
 
-    private var t: CGFloat = 0                 // 动画时钟
+    private var t: CGFloat = 0                 // animation clock
     private var blinkUntil: CGFloat = -1
     private var nextBlinkAt: CGFloat = 2
-    private var spinPhase: CGFloat = 0         // 0–1 循环，保证首尾无缝
+    private var spinPhase: CGFloat = 0         // loops over 0–1, so the ends join seamlessly
     private var sunSpin: CGFloat = 0
-    private var ringShown: [CGFloat] = [0, 0]   // 两个圆环当前显示值（外/内），向目标缓动
-    private var blockRects: [(String, NSRect)] = []  // 命中测试用
+    private var ringShown: [CGFloat] = [0, 0]   // the two rings' currently displayed values (outer/inner), eased towards the target
+    private var blockRects: [(String, NSRect)] = []  // for hit testing
     private var loginButtonRect: NSRect = .zero
-    /// 定时缓动。指数平滑（smoothStep）总是头快尾慢：收起时前 0.1 秒就走完大半，
-    /// 剩下的一点点慢慢磨——看着就是「啪」地消失，而不是渐变。
-    /// 改成固定时长的 S 形曲线，快慢分布均匀，收起才像收起。
+    /// Timed easing. Exponential smoothing (smoothStep) is always quick at the start and slow at the end:
+    /// when collapsing, most of the distance is covered in the first 0.1 seconds and the last little bit
+    /// grinds along slowly — it simply snaps out of existence rather than fading.
+    /// Switched to a fixed-duration S-curve, so the pace is spread evenly and collapsing looks like collapsing.
     private struct Tween {
         private(set) var value: CGFloat = 0
         private var from: CGFloat = 0
         private var to: CGFloat = 0
         private var startedAt: CGFloat = -99
-        /// 返回值：这一帧有没有变化（用来决定要不要通知窗口重新布局）
+        /// Return value: did anything change this frame (used to decide whether to tell the window to re-lay out)
         mutating func step(to target: CGFloat, now: CGFloat,
                            dur: CGFloat, instant: Bool) -> Bool {
             if target != to { from = value; to = target; startedAt = now }
@@ -47,28 +48,30 @@ final class PetView: NSView {
     }
     private var hoverTween = Tween()
     private var expandTween = Tween()
-    var hoverProgress: CGFloat { hoverTween.value }      // 0–1，详情展开进度
-    var expandProgress: CGFloat { expandTween.value }    // 0=只剩太阳，1=完整卡片
-    var reduceMotion = false        // 系统「减弱动态效果」
-    var reduceTransparency = false  // 系统「降低透明度」：自己画不透明底
-    // 系统「提高对比度」：目前绘制里没有用到它。留着是因为 App 层每次读无障碍设置
-    // 都会写进来，删掉要一并改那边；真要用的话，该在这里加粗描边、提高文字对比
+    var hoverProgress: CGFloat { hoverTween.value }      // 0–1, how far the details have expanded
+    var expandProgress: CGFloat { expandTween.value }    // 0 = only the sun left, 1 = the full card
+    var reduceMotion = false        // the system's "Reduce motion"
+    var reduceTransparency = false  // the system's "Reduce transparency": we draw an opaque backing ourselves
+    // The system's "Increase contrast": the drawing code does not currently use it. It is kept because the
+    // App layer writes it in every time it reads the accessibility settings, so deleting it means changing
+    // that side too; if we ever do use it, this is where to thicken strokes and raise text contrast
     var increaseContrast = false
 
 
-    /// 只有交互与过渡才需要满帧；单纯的呼吸眨眼用低帧率就够
+    /// Only interaction and transitions need the full frame rate; plain breathing and blinking do fine on a low one
     var needsFullFrameRate: Bool {
-        if model.anyBusy { return true }                 // 转圈 / 光芒转动
-        if mousePoint != nil { return true }             // 光芒引力
+        if model.anyBusy { return true }                 // spinner / rotating rays
+        if mousePoint != nil { return true }             // ray gravity
         if abs(hoverProgress - (model.hovered || model.detailsPinned ? 1 : 0)) > 0.001 { return true }
         if abs(expandProgress - expandTargetValue) > 0.001 { return true }
         return false
     }
 
-    /// 用满了的那条限额什么时候解封。**只有真的到上限（太阳变 ✖）才画这一行**——
-    /// 没满的时候「还有多久重置」是句废话，占一行还把卡片撑高；
-    /// 满了之后它反过来是唯一还想知道的事。
-    /// 多条同时超限就取最早解封的那条。nil = 没满，这一行不画
+    /// When the limit you have used up unlocks again. **This line is only drawn once a limit really is at
+    /// its ceiling (the sun turns into ✖)** — while there is headroom left, "how long until it resets" is
+    /// a pointless sentence that takes up a line and makes the card taller as well;
+    /// once it is full, it becomes the one thing you still want to know.
+    /// If several are over the limit at once, take the one that unlocks earliest. nil = not full, so this line is not drawn
     func soonestResetText() -> String? {
         let now = Date()
         let next = model.rows
@@ -79,66 +82,69 @@ final class PetView: NSView {
             }
             .min { $0.0 < $1.0 }
         guard let (date, label) = next else { return nil }
-        // 「每周 · 全部模型」这种长标签只取第一段，198pt 宽放不下整条
+        // A long label such as "Weekly · All models" is cut down to its first segment; 198pt of width cannot fit the whole thing
         let short = label.components(separatedBy: " · ").first ?? label
         return "\(short) · \(compactReset(date)) 后解封"
     }
 
-    /// 供 AppDelegate.expandedHeight() 用：这一行占不占地方
+    /// For AppDelegate.expandedHeight(): does this line take up any room or not
     var resetLineHeight: CGFloat { soonestResetText() == nil ? 0 : PetView.resetLineH }
 
     private var expandTargetValue: CGFloat {
-        // 用 blocks 而不是 visibleSessions：块还在淡出时窗口不能先收，
-        // 否则两段动画叠在一起，看起来仍然是「啪」一下
+        // Use blocks rather than visibleSessions: while a block is still fading out the window must not
+        // collapse ahead of it, otherwise the two animations pile on top of each other and it still looks like a snap
         (model.hovered || model.detailsPinned || !blocks.isEmpty
             || model.loading || (model.rows.isEmpty && model.errorMsg != nil)) ? 1 : 0
     }
-    var onHoverProgress: (() -> Void)?               // 每帧回调，驱动窗口高度
-    private var mousePoint: NSPoint?                 // 视图内鼠标位置（引力源）
-    /// 离屏渲染演示 GIF 用：直接给定光标位置，跳过真实光标。正常运行恒为 nil
+    var onHoverProgress: (() -> Void)?               // per-frame callback, drives the window height
+    private var mousePoint: NSPoint?                 // mouse position inside the view (the source of the pull)
+    /// For the off-screen-rendered demo GIF: hand it the cursor position directly and skip the real cursor. Always nil in normal operation
     var mouseOverride: NSPoint?
-    private var petCenter: NSPoint = .zero           // 上一帧太阳中心
-    private var rayPull = [CGFloat](repeating: 0, count: PetView.rayCount)  // 各光芒伸长量
-    private var bodyLean = NSPoint.zero              // 整只往鼠标方向偏一点
-    private var eyeShift = NSPoint.zero              // 眼珠看向鼠标
-    private var perk: CGFloat = 0                    // 0–1，被靠近时的「精神一振」
-    /// 0 = 清醒，1 = 打盹。原来 isSunAsleep 是个硬布尔，颜色 / 眼睛 / zzz / 光芒转角
-    /// 全在一帧里瞬切——会话一停，太阳「啪」地变灰。改成连续量，各处按它插值
+    private var petCenter: NSPoint = .zero           // the sun's centre on the previous frame
+    private var rayPull = [CGFloat](repeating: 0, count: PetView.rayCount)  // how far each ray is extended
+    private var bodyLean = NSPoint.zero              // the whole creature leans a little towards the mouse
+    private var eyeShift = NSPoint.zero              // the pupils look towards the mouse
+    private var perk: CGFloat = 0                    // 0–1, the little perk-up when something comes close
+    /// 0 = awake, 1 = dozing. isSunAsleep used to be a hard boolean, so the colour / eyes / zzz / ray
+    /// rotation angle all switched over within one frame — the moment a session stopped, the sun snapped
+    /// grey. Changed to a continuous quantity that everything else interpolates against
     private var sleepT: CGFloat = 1
-    /// 0 = 没满，1 = 到上限。到上限时眼睛变 ✖，一眼看出「这条已经用完了」
+    /// 0 = not full, 1 = at the ceiling. At the ceiling the eyes turn into ✖, so you see at a glance that this one is used up
     private var deadT: CGFloat = 0
-    /// 呼吸相位单独累积。醒着和睡着的呼吸频率不同，直接改 sin 的频率
-    /// 会在切换那一帧跳相，看着像抽了一下
+    /// The breathing phase is accumulated separately. Awake and asleep breathe at different rates, and
+    /// changing the frequency of the sin directly makes the phase jump on the switching frame, which looks like a twitch
     private var breathPhase: CGFloat = 0
-    /// 只读，给 docs/make-demo.swift 对齐无缝循环用。
-    /// 其余振荡（zzz、两侧仪表拉扯）都是绝对时间的函数，外部能自己算；
-    /// 唯独呼吸是累积量——醒着 1.6、睡着 1.0、中间还有过渡段，推算不出来
+    /// Read-only, for docs/make-demo.swift to line the seamless loop up.
+    /// The other oscillations (zzz, the tug from the gauges on either side) are all functions of absolute
+    /// time, so an outside caller can work them out itself;
+    /// breathing alone is an accumulated quantity — 1.6 awake, 1.0 asleep, with a transition stretch in between — and cannot be derived
     var breathPhaseSnapshot: CGFloat { breathPhase }
-    /// 会话块的出现/消失进度。窗口高度必须用这个连续值算，不能直接数块数——
-    /// 块数是离散的，最后一块一消失窗口会在一帧里掉 50pt，把所有缓动都吃掉。
-    /// 正在淡出的块要留着自己的数据，不然没法继续画。
+    /// How far a session block has appeared/disappeared. The window height has to be computed from this
+    /// continuous value and not by counting blocks — the count is discrete, so the instant the last block
+    /// goes the window drops 50pt within one frame and swallows all the easing.
+    /// A block that is fading out has to hold on to its own data, otherwise there is no way to keep drawing it.
     private struct BlockAnim { var s: SessionActivity; var tw = Tween() }
     private var blocks: [BlockAnim] = []
-    /// 会话块区域当前占的高度（连续变化）。
-    /// 必须夹到 0：sum 很小的时候 sum*56-6 是负的，窗口会先缩过头再弹回来
+    /// The height the session-block area currently occupies (varies continuously).
+    /// Must be clamped to 0: when sum is very small, sum*56-6 is negative and the window shrinks past the target before springing back
     var blocksHeight: CGFloat {
         let sum = blocks.reduce(0) { $0 + $1.tw.value }
         return max(0, sum * (PetView.blockH + PetView.blockGap) - PetView.blockGap)
     }
 
     static let topRowH: CGFloat = 64
-    static let blockH: CGFloat = 50        // 标题 + 状态 + 上下文进度条
+    static let blockH: CGFloat = 50        // title + status + context progress bar
     static let blockGap: CGFloat = 6
     static let maxBlocks = 4
     static let petScale: CGFloat = 0.44
-    static let cardRadius: CGFloat = 26     // 与 AppDelegate.expandedRadius 一致
-    static let compactSide: CGFloat = 88  // 收起时的窗口边长（只剩太阳）
-    static let resetLineH: CGFloat = 15   // 「最近重置」那一行的高度
-    static let rayCount = 9               // 奇数根，转起来更自然
-    static let rayMaxPull: CGFloat = 13   // 正对鼠标且贴近时的最大伸长（pt）
-    static let gaugeMaxPull: CGFloat = 9.5 // 仪表满格时朝它那侧的最大伸长（pt）
-    /// 两股力叠加后的封顶：收起时窗口只有 88pt 见方（半径 44），
-    /// 光芒伸过头会被窗口边缘直接切掉
+    static let cardRadius: CGFloat = 26     // matches AppDelegate.expandedRadius
+    static let compactSide: CGFloat = 88  // the window's side length when collapsed (only the sun left)
+    static let resetLineH: CGFloat = 15   // the height of the "soonest reset" line
+    static let rayCount = 9               // an odd number, which turns more naturally
+    static let rayMaxPull: CGFloat = 13   // maximum extension when pointing straight at the mouse and close to it (pt)
+    static let gaugeMaxPull: CGFloat = 9.5 // maximum extension towards a gauge's side when that gauge is full (pt)
+    /// The cap once the two forces are added together: when collapsed the window is only 88pt square
+    /// (radius 44), so a ray that reaches too far is simply clipped off by the window edge
     static let rayPullCap: CGFloat = 18
 
     init(model: PetModel) {
@@ -154,7 +160,7 @@ final class PetView: NSView {
         sleepT = smoothStep(sleepT, toward: isSunAsleep ? 1 : 0, dt: dt, rate: 3.2)
         deadT = smoothStep(deadT, toward: model.maxPercent >= 100 ? 1 : 0, dt: dt, rate: 3.0)
         breathPhase += dt * (1.6 - 0.6 * sleepT)
-        // 转圈：归一化相位，wrap 时首尾严丝合缝
+        // Spinner: normalised phase, so the ends fit together exactly where it wraps
         if model.anyBusy {
             spinPhase += dt * 0.55
             while spinPhase >= 1 { spinPhase -= 1 }
@@ -163,54 +169,56 @@ final class PetView: NSView {
             sunSpin += dt * 0.9
             while sunSpin > .pi * 2 { sunSpin -= .pi * 2 }
         } else if sunSpin != 0 {
-            // 停下时归到最近的一个「卡点」。光芒是 9 次对称，转到 40° 的任意
-            // 整数倍看起来都一样，所以这一步是看不见的——但空闲时的姿态从此
-            // 唯一确定，而不是「上次转到哪就停哪」。菜单栏那只本来就是停下
-            // 回正（statusSpin = 0），两边现在一致了
+            // On stopping, settle onto the nearest detent. The rays have 9-fold symmetry, so any integer
+            // multiple of 40° looks the same, which makes this step invisible — but the idle pose is now
+            // uniquely determined rather than "wherever it happened to stop last time". The one in the
+            // menu bar already returned to zero when it stopped (statusSpin = 0), so the two now agree
             let step = CGFloat.pi * 2 / CGFloat(PetView.rayCount)
             let target = (sunSpin / step).rounded() * step
             sunSpin = smoothStep(sunSpin, toward: target, dt: dt, rate: 4)
             if abs(sunSpin - target) < 0.0005 { sunSpin = target }
         }
-        // 圆环数值缓动跟随。**按位置记，不按标签记**——右圈显示的是「最紧的那条周限额」，
-        // 哪条最紧是会换人的（比如 Fable 被「全部模型」反超）。按标签记的话，换人时
-        // 新标签没有历史值、要从 0 长起来，看着像用量突然清零了
-        // （实测：216° 一帧掉到 54°，再花半秒爬回 259°）。
-        // 按位置记就只是同一个环从旧值走到新值，符合直觉。
+        // The rings ease towards their values. **Keyed by position, not by label** — the right-hand ring
+        // shows "the tightest weekly limit", and which one that is changes hands (Fable being overtaken by
+        // "all models", say). Keyed by label, a handover means the new label has no history and has to grow
+        // up from 0, which looks as though usage suddenly reset to zero
+        // (measured: 216° dropping to 54° in one frame, then taking half a second to climb back to 259°).
+        // Keyed by position it is just the same ring travelling from the old value to the new one, which matches intuition.
         let ringTargets = model.ringRows
         for (i, row) in [ringTargets.outer, ringTargets.inner].enumerated() {
-            // 圆环最多画满一圈；超限的部分靠中间的数字（如 106%）说话
+            // A ring is drawn at most one full turn; anything past the limit is left for the number in the middle (106%, say) to say
             let target = row.map { min(1, CGFloat($0.percent) / 100) } ?? 0
             let cur = ringShown[i]
             ringShown[i] = abs(cur - target) > 0.0005
                 ? smoothStep(cur, toward: target, dt: dt, rate: 5) : target
         }
         updateMousePoint()
-        // 光芒引力：朝鼠标的那几根被拉长，背对的缩回，离得越近越明显
-        // 指针引力是跟手位移，Reduce Motion 时保持关闭；呼吸与转动不受影响
+        // Ray gravity: the ones facing the mouse stretch out, the ones facing away pull back, and the closer it is the more obvious it gets
+        // Pointer gravity is movement that tracks the hand, so it stays off under Reduce Motion; breathing and rotation are unaffected
         let targets = reduceMotion ? [CGFloat](repeating: 0, count: PetView.rayCount)
             : rayPullTargets()
         for i in 0..<PetView.rayCount {
             rayPull[i] = smoothStep(rayPull[i], toward: targets[i], dt: dt, rate: 9)
         }
-        // 整只偏移 + 眼神跟随 + 精神一振：和光芒同一个「场」，一起缓动
+        // Whole-body lean + gaze following + perk-up: the same field as the rays, eased together
         let field = reduceMotion ? nil : mouseField()
-        // 醒着是凑过去（+4.2），睡着是躲开（-3.0）。按 sleepT 连续插值，
-        // 中间会经过 0——「先不躲也不凑，再慢慢反过来」，比正负瞬切自然
+        // Awake it leans in (+4.2), asleep it shies away (-3.0). Interpolated continuously by sleepT, so it
+        // passes through 0 on the way — "neither shying away nor leaning in, then slowly reversing" — which is more natural than flipping the sign instantly
         let leanMax: CGFloat = 4.2 * (1 - sleepT) - 3.0 * sleepT
         let lean = field.map {
             NSPoint(x: $0.ux * leanMax * $0.proximity,
                     y: $0.uy * leanMax * $0.proximity)
         } ?? .zero
-        // 有鼠标就看鼠标（比身体跟得更早也更满，离得还远就已经在看你了）；
-        // 没人理它的时候，就时不时瞟一眼两侧的仪表盘
+        // If there is a mouse, look at the mouse (the eyes follow sooner and further than the body does — it
+        // is already watching you from a fair way off);
+        // when nobody is paying it any attention, it glances now and then at the gauges on either side
         let eye: NSPoint
         if let f = field {
-            let k = 1.7 * (1 - sleepT)      // 睡着时眼珠不再跟人走
+            let k = 1.7 * (1 - sleepT)      // asleep, the pupils stop following people
             eye = NSPoint(x: f.ux * k * min(1, f.proximity * 2.4),
                           y: f.uy * k * min(1, f.proximity * 2.4))
         } else {
-            eye = .zero          // 没鼠标就正视前方，不再自己乱瞟
+            eye = .zero          // with no mouse it just looks straight ahead, no more glancing about
         }
         bodyLean = NSPoint(x: smoothStep(bodyLean.x, toward: lean.x, dt: dt, rate: 7),
                            y: smoothStep(bodyLean.y, toward: lean.y, dt: dt, rate: 7))
@@ -218,10 +226,12 @@ final class PetView: NSView {
                            y: smoothStep(eyeShift.y, toward: eye.y, dt: dt, rate: 12))
         perk = smoothStep(perk, toward: (field?.proximity ?? 0) * (1 - sleepT),
                           dt: dt, rate: 8)
-        // 会话块的出现/消失：还在的**按 visible 的顺序重排**，走掉的插回原位淡出。
-        // 之前是「按旧顺序遍历、新块一律 append」，于是 Activity 精心排的
-        // 「等你选的最前 → 在跑的 → 未读的」只在 blocks 从空建立那一次生效；
-        // 之后某个会话抛出选项，它仍画在原来的格子里，5 个会话时甚至排到最后一格。
+        // Session blocks appearing/disappearing: the ones still there are **reordered to follow the order of
+        // visible**, and the ones that have gone are put back in place to fade out.
+        // It used to iterate in the old order and append every new block, so the ordering Activity had
+        // carefully arranged — "waiting on you first → running → unread" — only took effect on the one
+        // occasion blocks was built up from empty; after that, a session that threw up a prompt was still
+        // drawn in its old slot, and with 5 sessions it could even end up in the last one.
         let visible = model.visibleSessions
         var nextBlocks: [BlockAnim] = []
         var blocksChanged = false
@@ -238,7 +248,7 @@ final class PetView: NSView {
                 blocksChanged = true
             }
         }
-        // 已经不在 visible 里的插回它原来的相对位置，就地淡出，不要突然跳位
+        // Anything no longer in visible goes back at its old relative position and fades out in place, rather than suddenly jumping somewhere else
         for (i, old0) in blocks.enumerated()
         where !visible.contains(where: { $0.id == old0.s.id }) {
             var fading = old0
@@ -250,9 +260,10 @@ final class PetView: NSView {
         }
         blocks = nextBlocks
 
-        // 悬停详情 + 收起/展开：定时缓动，窗口尺寸与内容透明度同步跟随。
-        // 收起给的时间比展开长——「出现」可以利落，「消失」慢一点才不像被抹掉。
-        // Reduce Motion 时尺寸变化直接到位（逐帧缩放才是会引起不适的那部分）
+        // Hover details + collapse/expand: timed easing, with the window size and the content opacity
+        // following in step. Collapsing is given longer than expanding — appearing can be brisk, but
+        // disappearing has to be slower or it looks like it was wiped away.
+        // Under Reduce Motion the size change lands immediately (the per-frame scaling is the part that causes discomfort)
         let hoverTarget: CGFloat = (model.hovered || model.detailsPinned) ? 1 : 0
         let expandTarget = expandTargetValue
         var changed = hoverTween.step(to: hoverTarget, now: t,
@@ -262,22 +273,24 @@ final class PetView: NSView {
                                    dur: expandTarget > expandProgress ? 0.40 : 0.62,
                                    instant: reduceMotion) || changed
         if changed || blocksChanged { onHoverProgress?() }
-        // 眨眼。之前连同「瞟仪表」一起删过，但那两件事不一样：
-        // 瞟仪表是眼珠周期性左右移动（看着像在闪），眨眼只是一次高度收缩，不抢眼
-        if t >= nextBlinkAt, deadT < 0.5 {      // ✖ 眼不眨
+        // Blinking. It was once deleted along with the "glance at the gauges" behaviour, but the two are not
+        // the same thing: glancing at the gauges moves the pupils left and right periodically (which reads
+        // as flickering), whereas a blink is just one contraction in height and does not grab the eye
+        if t >= nextBlinkAt, deadT < 0.5 {      // ✖ eyes do not blink
             blinkUntil = t + 0.16
             nextBlinkAt = t + CGFloat.random(in: 2.4...6.0)
         }
         needsDisplay = true
     }
 
-    /// 太阳是否在打盹：绘制与引力必须用同一个判断，否则角度会错开一个 sunSpin
+    /// Whether the sun is dozing: the drawing and the gravity must use the same test, or the angles end up out by one sunSpin
     private var isSunAsleep: Bool { model.asleep || !model.anyBusy }
 
 
-    /// 引力源用**全局**光标位置，而不是「鼠标进了窗口才算」。
-    /// 这样光标还在窗口外靠近时，太阳就已经有反应了——「引力」本来就该是隔空的。
-    /// 超出作用半径就置空，免得一直按满帧重绘。
+    /// The source of the pull is the **global** cursor position, not "it only counts once the mouse is
+    /// inside the window". That way the sun is already reacting while the cursor is approaching from
+    /// outside the window — gravity is supposed to act at a distance.
+    /// Beyond the radius of effect it is cleared, so we do not keep redrawing at the full frame rate.
     private func updateMousePoint() {
         let p: NSPoint
         if let o = mouseOverride {
@@ -292,22 +305,24 @@ final class PetView: NSView {
         mousePoint = dx * dx + dy * dy <= 230 * 230 ? p : nil
     }
 
-    /// 鼠标相对太阳的方向与近度。光芒、身体偏移、眼神跟随都取自同一个场，
-    /// 否则各算各的，切换状态时会出现互相错位
+    /// The mouse's direction and closeness relative to the sun. The rays, the body lean and the gaze
+    /// following all come from the same field; otherwise each works it out for itself and they end up out
+    /// of alignment with one another when the state changes
     private func mouseField() -> (ux: CGFloat, uy: CGFloat, proximity: CGFloat)? {
         guard let m = mousePoint, petCenter != .zero else { return nil }
         let dx = m.x - petCenter.x, dy = m.y - petCenter.y
         let dist = sqrt(dx * dx + dy * dy)
         guard dist > 0.001 else { return nil }
-        // 近度：贴着身体最强，约 150pt 外基本消失
+        // Closeness: strongest right up against the body, essentially gone about 150pt out
         let proximity = 1 / (1 + pow(max(0, dist - 26) / 62, 2))
         guard proximity > 0.02 else { return nil }
         return (dx / dist, dy / dist, proximity)
     }
 
-    /// 第 i 根光芒的朝向，必须和 drawPet 里的算法完全一致，否则受力方向会错位
-    /// sunSpin 在不忙的时候本来就停止累积，这里无条件带上它即可。
-    /// 原来睡着时强行归零，等于让整圈光芒在一帧里转回原位
+    /// The direction of ray i, which has to match the algorithm in drawPet exactly or the direction the
+    /// force acts in ends up misaligned.
+    /// sunSpin already stops accumulating while nothing is busy, so it can simply be included here unconditionally.
+    /// It used to be forced to zero while asleep, which amounted to spinning the whole ring of rays back to its starting position within a single frame
     private func rayAngle(_ i: Int) -> CGFloat {
         CGFloat(i) / CGFloat(PetView.rayCount) * 2 * .pi + .pi / 8 + sunSpin
     }
@@ -319,48 +334,52 @@ final class PetView: NSView {
         return d
     }
 
-    /// 每根光芒的目标伸长量，两股力叠加：
-    ///  ① 鼠标——醒着被吸过去，打盹时反过来躲开
-    ///  ② 两侧的仪表盘——用得越满，朝那一侧的光芒被拽得越长
+    /// The target extension of each ray, two forces added together:
+    ///  ① the mouse — awake it is drawn towards it, dozing it shies away instead
+    ///  ② the gauges on either side — the fuller they are used, the further the rays on that side are tugged out
     private func rayPullTargets() -> [CGFloat] {
         var out = [CGFloat](repeating: 0, count: PetView.rayCount)
 
         if let f = mouseField() {
             let mAngle = atan2(f.uy, f.ux)
-            let sign: CGFloat = 1 - 2 * sleepT         // 醒着凑过去，睡着躲开，中间连续过渡
+            let sign: CGFloat = 1 - 2 * sleepT         // awake it leans in, asleep it shies away, with a continuous transition in between
             let maxPull: CGFloat = PetView.rayMaxPull * (1 - sleepT) + 6 * sleepT
-            // 背对的一侧反向变化。醒着时只是一点点缀；睡着时「躲」要看得出来——
-            // 近的一侧缩回去的同时，远的一侧要明显探出去，才像整个身子被推开。
-            // 原来这个系数是 0.28，远侧只长了不到两个点，肉眼根本看不出来
+            // The side facing away moves the other way. Awake this is only a small garnish; asleep the
+            // shying away has to be visible — as the near side pulls back, the far side has to reach out
+            // noticeably, so it reads as the whole body being shoved aside.
+            // This coefficient used to be 0.28, and the far side grew by less than two points, which the naked eye simply cannot see
             let recoilK: CGFloat = 0.28 * (1 - sleepT) + 1.05 * sleepT
             for i in 0..<PetView.rayCount {
                 let delta = wrapPi(rayAngle(i) - mAngle)
-                // cos 归一到 0–1 后取幂。指数从 2.2 降到 1.4：光芒减到 9 根后，
-                // 太尖的衰减只有一根够得着，看不出「一片被拉过去」的感觉
+                // cos normalised to 0–1 and then raised to a power. The exponent went from 2.2 down to 1.4:
+                // once the rays were cut down to 9, too sharp a falloff means only one of them ever reaches, and you lose the sense of a whole swathe being pulled across
                 let alignment = pow(max(0, cos(delta)), 1.4)
                 let recoil = -recoilK * pow(max(0, -cos(delta)), 1.8)
                 out[i] += maxPull * f.proximity * (alignment + recoil) * sign
             }
         }
 
-        // 仪表盘的拉扯：左仪表在正左（π），右仪表在正右（0）。
-        // 从 50%（警戒线）起才开始拽，满格时最强——于是「哪边紧」直接长在造型上，
-        // 不用等你去读数字。光芒转动时被拽的那几根不断换人，整圈像被扯成了椭圆。
+        // The tug from the gauges: the left gauge sits due left (π), the right gauge due right (0).
+        // The pull only starts at 50% (the warning line) and is strongest when full — so "which side is
+        // tight" grows straight into the shape and you do not have to go and read a number. As the rays
+        // rotate, the ones being tugged keep changing hands, and the whole ring looks stretched into an ellipse.
         let rings = model.ringRows
         for (dirAngle, row) in [(CGFloat.pi, rings.outer), (CGFloat(0), rings.inner)] {
             guard let row else { continue }
             let pct = CGFloat(row.percent)
-            // 幅度要有下限。原来是从 50% 起的线性斜坡，60% 的圈只拿到满力的 20%，
-            // 摆幅 3.5pt，等于没动。现在最小也有满力的四成，
-            // 但仍随用量增长——「哪边紧」照样能从摆幅大小读出来
+            // The amplitude needs a floor. It used to be a linear ramp starting at 50%, so a ring at 60%
+            // only got 20% of the full force — a 3.5pt swing, which is as good as no movement at all. Now
+            // the minimum is four tenths of the full force, but it still grows with usage, so "which side
+            // is tight" can just as well be read off the size of the swing
             let k = 0.4 + 0.6 * min(1, max(0, (pct - 15) / 75))
             let u = max(0, min(1, pct / 100))
-            // 「呼吸」不是强弱起伏，是**一吸一斥**：正半周把这一侧的光芒拽出去，
-            // 负半周又收回来，来回摆动才看得出来（只在 0.55–1.0 之间变强弱，
-            // 方向始终向外，几乎看不出在动）。
-            // 快慢直接跟用量走（不跟带下限的幅度走，否则两边喘得一样快）：
-            // 空闲时约 7 秒一轮，满格约 3 秒。
-            // 两侧相位差半个周期，于是整圈光芒左右摇曳，而不是一起胀缩
+            // "Breathing" is not a swelling and fading in strength, it is **a pull and a push**: the
+            // positive half-cycle tugs this side's rays outwards and the negative half draws them back, and
+            // only that swinging to and fro is visible (varying in strength only between 0.55 and 1.0 with
+            // the direction always outwards, you can barely tell it is moving).
+            // The pace follows usage directly (not the floored amplitude, otherwise both sides pant at the
+            // same speed): about 7 seconds per cycle when idle, about 3 seconds when full.
+            // The two sides are half a cycle apart in phase, so the whole ring of rays sways left and right instead of swelling and shrinking together
             let rate = 0.9 + 1.1 * u
             let breath = 0.08 + 0.92 * sin(t * rate + (dirAngle == 0 ? .pi : 0))
             for i in 0..<PetView.rayCount {
@@ -372,16 +391,16 @@ final class PetView: NSView {
         return out
     }
 
-    // MARK: 事件
+    // MARK: Events
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     override func mouseDown(with event: NSEvent) {
         if event.clickCount == 2 { onDoubleClick?(); return }
-        // 点未读的会话块 = 标记已读，不触发拖动
+        // Clicking an unread session block = mark it read, and does not start a drag
         let p = convert(event.locationInWindow, from: nil)
         if model.needsLogin, loginButtonRect.contains(p) {
-            onDoubleClick?()          // 与双击同一动作：开始登录
+            onDoubleClick?()          // the same action as a double click: start logging in
             return
         }
         for (id, rect) in blockRects where rect.contains(p) {
@@ -417,14 +436,14 @@ final class PetView: NSView {
         mousePoint = convert(event.locationInWindow, from: nil)
     }
 
-    // MARK: 无障碍（整个界面是自绘的，必须手工搭出元素树）
+    // MARK: Accessibility (the whole UI is custom-drawn, so the element tree has to be built by hand)
 
-    // 容器自身要可见，否则子元素会被挂到窗口上、label 也不会被读出
+    // The container itself has to be visible, otherwise the children get hung off the window and the label is never read out either
     override func isAccessibilityElement() -> Bool { true }
     override func accessibilityRole() -> NSAccessibility.Role? { .group }
     override func accessibilityLabel() -> String? { "Claude 用量与会话状态" }
 
-    /// 可按下的无障碍元素：VoiceOver 按下时执行 action
+    /// A pressable accessibility element: runs the action when VoiceOver presses it
     final class ActionElement: NSAccessibilityElement {
         var onPress: (() -> Void)?
         override func accessibilityPerformPress() -> Bool {
@@ -434,8 +453,9 @@ final class PetView: NSView {
         }
     }
 
-    /// 必须由我们自己持有：AppKit 只弱引用 accessibilityParent，
-    /// 现造现返的元素会立刻析构，辅助功能读到的全是失效元素（-25202）。
+    /// We have to hold on to these ourselves: AppKit only holds a weak reference to accessibilityParent, so
+    /// elements built and returned on the spot are deallocated straight away and assistive technology only
+    /// ever reads dead elements (-25202).
     private var axKids: [NSAccessibilityElement] = []
     private var axKeys: [String] = []
 
@@ -452,7 +472,7 @@ final class PetView: NSView {
         let midY = card.minY + 10 + PetView.topRowH / 2
         let gaugeR: CGFloat = 26
         let rings = model.ringRows
-        // 收起状态下仪表没画出来，就不要报给辅助功能
+        // In the collapsed state the gauges are not drawn, so do not report them to assistive technology
         if expandProgress > 0.5 {
             for (row, name, cx) in [
                 (rings.outer, "5 小时用量", card.minX + card.width * 0.17),
@@ -487,8 +507,8 @@ final class PetView: NSView {
                 v, accessibilityFrame(rect))
         }
 
-        // 元素集合变了才重建（重建会把 VoiceOver 光标打回原点）；
-        // 数值/位置变化就地更新，指针身份保持不变
+        // Only rebuild when the set of elements changes (rebuilding knocks the VoiceOver cursor back to the
+        // start); value/position changes are updated in place so the pointer identities stay the same
         let keys = descs.map { $0.key }
         if keys != axKeys {
             axKeys = keys
@@ -514,21 +534,21 @@ final class PetView: NSView {
             let changed = (e.accessibilityValue() as? String) != d.value
             e.setAccessibilityLabel(d.label)
             e.setAccessibilityValue(d.value)
-            e.setAccessibilityFrame(d.frame)   // 窗口会被拖动，帧每次都要刷新
+            e.setAccessibilityFrame(d.frame)   // the window gets dragged about, so the frame has to be refreshed every time
             if changed { NSAccessibility.post(element: e, notification: .valueChanged) }
         }
         return axKids
     }
 
-    /// 视图坐标（翻转）→ 屏幕坐标
+    /// View coordinates (flipped) → screen coordinates
     private func accessibilityFrame(_ r: NSRect) -> NSRect {
         let inWindow = convert(r, to: nil)
         return window?.convertToScreen(inWindow) ?? inWindow
     }
 
-    // MARK: 绘制
+    // MARK: Drawing
 
-    /// 以指定不透明度执行一段绘制
+    /// Run a piece of drawing at a given opacity
     private func withAlpha(_ a: CGFloat, _ body: () -> Void) {
         guard let ctx = NSGraphicsContext.current?.cgContext else { body(); return }
         ctx.saveGState()
@@ -537,9 +557,10 @@ final class PetView: NSView {
         ctx.restoreGState()
     }
 
-    /// 卡片边缘映光：左上亮、右下淡的一圈内描边。
-    /// 系统玻璃自带的高光很弱，深色下卡片几乎和桌面糊在一起、看不出边界在哪；
-    /// 补这一圈之后才立得起来。跟着展开进度一起淡入，收起时不画。
+    /// Light catching the card edge: an inner stroke that is bright at the top left and faint at the bottom right.
+    /// The highlight the system glass comes with is very weak, and in dark mode the card almost smears into
+    /// the desktop with no visible boundary; only once this ring is added does it stand up.
+    /// It fades in along with the expand progress and is not drawn when collapsed.
     private func drawCardEdge(_ rect: NSRect, expand e: CGFloat) {
         guard e > 0.01, rect.width > 2, rect.height > 2 else { return }
         let a = easeInOut(min(1, e / 0.45))
@@ -554,7 +575,7 @@ final class PetView: NSView {
         let dark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
         NSGraphicsContext.saveGraphicsState()
         band.setClip()
-        // 视图是翻转的：+y 向下，所以 45° 指向右下，渐变起点落在左上角
+        // The view is flipped: +y points down, so 45° points to the bottom right and the gradient starts at the top-left corner
         NSGradient(colors: [NSColor(calibratedWhite: 1, alpha: (dark ? 0.55 : 0.95) * a),
                             NSColor(calibratedWhite: dark ? 1 : 0.55,
                                     alpha: (dark ? 0.03 : 0.14) * a)],
@@ -565,9 +586,9 @@ final class PetView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         blockRects.removeAll()
-        loginButtonRect = .zero   // 不复位的话，会话块一出现就会踩到上一帧留下的登录热区
-        // 玻璃已被隐藏，这里补一个不透明背板，保证可读。
-        // 但完全收起时同样不画——闲着只剩一颗太阳，没有内容需要背板托底
+        loginButtonRect = .zero   // without resetting it, the moment a session block appears it steps on the login hot zone left over from the previous frame
+        // The glass has been hidden, so add an opaque backing panel here to keep things readable.
+        // But likewise do not draw it when fully collapsed — sitting idle there is only a sun, and no content that needs a panel behind it
         let e0 = expandProgress
         if reduceTransparency, e0 > 0.01 {
             let r0 = min(bounds.width, bounds.height) / 2
@@ -579,25 +600,26 @@ final class PetView: NSView {
                          yRadius: min(radius0, bounds.height / 2)).fill()
         }
         drawCardEdge(bounds, expand: e0)
-        // 卡片底由 NSGlassEffectView 负责（真正的 Liquid Glass），这里只画内容
+        // The card's base is handled by NSGlassEffectView (real Liquid Glass); only the content is drawn here
         let card = bounds
         let e = expandProgress
 
         let rowMidY = card.minY + 10 + PetView.topRowH / 2
-        // 太阳始终居中，两个仪表分居左右
+        // The sun always stays centred, with the two gauges sitting to either side
         let petY = card.midY + (rowMidY - card.midY) * e
         drawPet(center: NSPoint(x: card.midX, y: petY))
 
-        // 仪表要比窗口先淡出：等窗口都快收窄到只剩太阳了它还在，
-        // 就会被窗口边缘生生切掉，看着像「啪」地消失而不是渐隐。
-        // 同时略微缩小，读起来是「收回去了」而不是「被裁掉了」
+        // The gauges have to fade out before the window does: if they are still there once the window has
+        // nearly narrowed down to just the sun, they get sliced clean off by the window edge, which looks
+        // like snapping out of existence rather than fading away.
+        // They also shrink slightly, so it reads as "pulled back in" rather than "cropped off"
         let g = easeInOut(max(0, (e - 0.34) / 0.66))
-        // 没有任何用量数据（未登录 / 无订阅）就不画那两个空圈，
-        // 留两个空轨道在那儿只会让人以为是坏了
+        // With no usage data at all (not logged in / no subscription) do not draw those two empty rings;
+        // leaving two empty tracks sitting there only makes people think it is broken
         if g > 0.004, !model.rows.isEmpty {
             withAlpha(g) { drawGauges(in: card, midY: rowMidY, scale: 0.84 + 0.16 * g) }
         }
-        guard e > 0.01 else { return }   // 完全收起时只剩太阳
+        guard e > 0.01 else { return }   // when fully collapsed only the sun is left
 
         var y = card.minY + 10 + PetView.topRowH + 2
 
@@ -617,10 +639,11 @@ final class PetView: NSView {
             return
         }
 
-        // 拿不到用量时**只有在没有会话可显示**的情况下才独占整张卡片。
-        // 会话状态那半边读的是本地记录文件，跟登录和订阅都没关系——
-        // 没有 Max/Pro 的人（授权页会直接拒绝）照样该看得到自己在跑什么、
-        // 上下文用了多少。早先这里无条件 return，等于把唯一还能用的功能也关掉了。
+        // When usage cannot be fetched, the message takes over the whole card **only when there are no
+        // sessions to show**. The session-status half reads local record files and has nothing to do with
+        // logging in or with subscriptions — someone without Max/Pro (the authorisation page turns them away
+        // outright) should still get to see what they have running and how much context it has used.
+        // This used to return unconditionally, which amounted to switching off the one feature that still worked.
         if model.rows.isEmpty, let msg = model.errorMsg, blocks.isEmpty {
             drawText(msg, in: NSRect(x: card.minX + 13, y: y + 4,
                                      width: card.width - 26, height: 46),
@@ -628,7 +651,7 @@ final class PetView: NSView {
                      color: .secondaryLabelColor,
                      align: .center, lineBreak: .byWordWrapping)
             if model.needsLogin {
-                // 至少 28pt 高，符合 macOS 可点区域下限
+                // at least 28pt tall, which meets the macOS minimum for a clickable area
                 let btn = NSRect(x: card.midX - 60, y: y + 52, width: 120, height: 30)
                 loginButtonRect = btn
                 NSColor.coralDeep.setFill()
@@ -641,9 +664,10 @@ final class PetView: NSView {
             return
         }
 
-        // 正在运转的 + 已完成但未读的会话。
-        // 每块占的高度按自己的出现进度收放，并裁进这个高度里——于是它是「卷起来」
-        // 消失的，下面的块同步上滑，而不是整块凭空不见
+        // Sessions that are running + ones that have finished but are unread.
+        // The height each block takes up grows and shrinks with its own appearance progress, and the block
+        // is clipped into that height — so it disappears by rolling up, with the blocks below sliding up in
+        // step, rather than a whole block vanishing into thin air
         for b in blocks {
             let slotH = (PetView.blockH + PetView.blockGap) * b.tw.value
             if b.tw.value > 0.995 {
@@ -659,12 +683,13 @@ final class PetView: NSView {
             y += slotH
         }
 
-        // 详情随 hoverProgress 淡入淡出，并轻微上滑，跟窗口高度同步
+        // The details fade in and out with hoverProgress and slide up slightly, in step with the window height
         if hoverProgress > 0.01 {
             NSGraphicsContext.saveGraphicsState()
-            // 窗口给详情预留的高度是按 hoverProgress 插值的，而这里画的是全尺寸内容。
-            // 不裁的话，展开的 0.30 秒和收起的 0.42 秒里，末两行加「x 分钟前更新」
-            // 会露到窗口外面被硬切掉。裁进卡片实际范围，让它像被卷出来一样。
+            // The height the window reserves for the details is interpolated by hoverProgress, whereas what
+            // is drawn here is the content at full size. Without clipping, during the 0.30 seconds of
+            // expanding and the 0.42 seconds of collapsing the last two lines plus the "updated x minutes
+            // ago" line stick out beyond the window and get chopped off. Clip to the card's actual bounds so it looks as though it is being unrolled.
             NSBezierPath(rect: NSRect(x: card.minX, y: y,
                                       width: card.width,
                                       height: max(0, card.maxY - y))).setClip()
@@ -679,84 +704,90 @@ final class PetView: NSView {
         }
     }
 
-    // MARK: 吉祥物
+    // MARK: Mascot
 
     private func drawPet(center: NSPoint) {
         let s = PetView.petScale
         let cx0 = center.x, cy0 = center.y
         let stress = CGFloat(model.maxPercent) / 100.0
-        // 没有会话在跑就打盹：灰扑扑、闭眼、飘 zzz
-        let sT = sleepT                       // 0 = 清醒，1 = 打盹；以下全部按它插值
+        // With no session running it dozes: drab and grey, eyes shut, zzz drifting off
+        let sT = sleepT                       // 0 = awake, 1 = dozing; everything below interpolates by it
         let breathe = 1 + 0.022 * sin(breathPhase)
 
         let light = NSColor.coralLight.blended(withFraction: sT, of: .sleepLight)
             ?? NSColor.coralLight
         let deep = NSColor.coralDeep.blended(withFraction: sT, of: .sleepDeep)
             ?? NSColor.coralDeep
-        // 身体随用量连续加深。原来是过了 75% 才突然变，等于只有两档；
-        // 改成一路渐深，扫一眼颜色就知道大概用了多少，不用去读数字。
-        // 取 1.5 次幂：用量低时几乎不变色，高位才明显压暗
-        // 睡着时也保留用量信号。**只剩一颗太阳的时候，恰恰是没有别的东西可看的时候**——
-        // 原来这里把颜色全关掉，等于在最需要它的场合什么都读不到（实测：10% 和 99%
-        // 渲染出来一模一样）。所以睡着照样压暗，只是幅度收一点、目标色换成暖深灰，
-        // 让它仍然像在睡觉而不是生病
+        // The body darkens continuously with usage. It used to change abruptly only past 75%, which meant
+        // there were really only two steps; now it deepens all the way along, so a glance at the colour
+        // tells you roughly how much has been used without reading a number.
+        // Raised to the power of 1.5: at low usage the colour barely changes, and only high up does it darken noticeably
+        // The usage signal is kept while asleep too. **The moment there is nothing but a sun left is exactly
+        // the moment there is nothing else to look at** — this used to switch the colour off entirely, which
+        // meant nothing could be read in the very situation that needed it most (measured: 10% and 99%
+        // rendered identically). So it still darkens while asleep, just by a slightly smaller amount and
+        // towards a warm dark grey, so it still looks as though it is sleeping rather than ill
         let tint = pow(max(0, min(1, stress)), 1.2) * (0.62 + 0.13 * sT)
-        // 上半只加深四成、下半加满：身体本来就是上浅下深的渐变，脸长在偏上的位置。
-        // 全身一起压暗的话，深色红底配深褐五官，对比度会掉到 2.5:1（图形下限是 3:1），
-        // 表情就糊了。这样既保住了「整体变深」的观感，脸也还看得清
+        // The top half darkens by four tenths and the bottom half by the full amount: the body is already a
+        // light-at-the-top, dark-at-the-bottom gradient, and the face sits fairly high up.
+        // Darkening the whole thing at once puts dark brown features on a dark red base and the contrast
+        // falls to 2.5:1 (the minimum for graphics is 3:1), which smudges the expression. This way we keep
+        // the impression of "the whole thing going darker" and the face is still legible
         let deepenTo: NSColor = NSColor.sunDeepen.blended(withFraction: sT, of: .sleepDeepen)
             ?? .sunDeepen
         let bodyLight = light.blended(withFraction: tint * 0.4, of: deepenTo) ?? light
         let bodyDeep = deep.blended(withFraction: tint, of: deepenTo) ?? deep
         let grad = NSGradient(starting: bodyLight, ending: bodyDeep)
 
-        petCenter = center   // 供下一帧的引力计算使用（必须是未偏移的中心，否则会自激）
-        // 整只朝鼠标挪一点。放在 petCenter 赋值之后，偏移只影响画面不影响算力场
+        petCenter = center   // used by the next frame's gravity calculation (it has to be the un-shifted centre, otherwise it self-oscillates)
+        // Shift the whole creature a little towards the mouse. Placed after petCenter is assigned, so the offset only affects the picture and not the field calculation
         let cx = cx0 + bodyLean.x, cy = cy0 + bodyLean.y
 
-        // 朝哪一侧的光芒，就染上那个仪表的颜色，深浅跟着它的用量走。
-        // 于是「太阳往左边被拽过去、而且左边那半是红的」＝ 左边那条限额快满了，
-        // 光看太阳就够了，不用去读两个圈里的数字。
-        // 染色只跟用量走、不跟呼吸走：颜色是状态，摆动是状态的表现，
-        // 两者混在一起会闪得人眼花。
-        // 每侧的固定发光色 + 按该侧用量决定的强度（见 Theme.swift）。
-        // 角度衰减放宽到 0.5，是为了让**一整个半边**都染上，
-        // 而不是只有正对着的那一两根变色——那样太细，扫一眼根本看不出来
+        // Whichever side a ray faces, it takes on that gauge's colour, with the depth following that gauge's
+        // usage. So "the sun is being tugged to the left, and that left half is red" = the left-hand limit
+        // is nearly full, and looking at the sun is enough — no need to read the numbers inside the two rings.
+        // The tint follows usage only, never the breathing: the colour is the state and the swaying is how
+        // the state shows itself, and mixing the two together flickers enough to dazzle you.
+        // A fixed glow colour per side + an intensity decided by that side's usage (see Theme.swift).
+        // The angular falloff is loosened to 0.5 so that **a whole half** takes on the tint, rather than
+        // only the one or two rays pointing straight at it — that is too thin to spot at a glance
         let rings = model.ringRows
         let tintSides: [(angle: CGFloat, color: NSColor, amount: CGFloat)] =
             [(CGFloat.pi, rings.outer), (CGFloat(0), rings.inner)]
                 .compactMap { pair -> (angle: CGFloat, color: NSColor, amount: CGFloat)? in
                     guard let row = pair.1 else { return nil }
-                    // pair.0 == .pi 是朝左那一侧
+                    // pair.0 == .pi is the left-hand side
                     let glow = pair.0 > 1 ? NSColor.glowLeft : NSColor.glowRight
-                    // 睡着时把发光色往睡眠灰里收——还认得出是金还是粉，但不刺眼
+                    // Asleep, pull the glow colour in towards the sleep grey — you can still tell gold from pink, but it does not glare
                     let c = glow.blended(withFraction: 0.25 * sT, of: .sleepDeep) ?? glow
-                    // **发光强度跟着这一侧的用量走**：越满越亮。
-                    // 这是空闲态唯一还能读出用量的通道——只剩一颗太阳时没有圈也没有数字，
-                    // 而灰身体压暗那点差别在 88pt 见方里根本看不出来（实测 10% 和 99% 几乎一样）。
-                    // 「越满越亮」也比「越满越暗」符合直觉，且不会重蹈深色淤青的覆辙。
+                    // **The glow intensity follows this side's usage**: the fuller, the brighter.
+                    // This is the only channel left for reading usage in the idle state — with just a sun
+                    // there is no ring and no number, and the small difference the darkened grey body makes
+                    // simply cannot be seen inside an 88pt square (measured: 10% and 99% look almost the same).
+                    // "Fuller is brighter" is also more intuitive than "fuller is darker", and it will not repeat the dark-bruise mistake.
                     let u = max(0, min(1, CGFloat(row.percent) / 100))
                     return (pair.0, c, pow(u, 0.75))
                 }
 
-        // 光芒：圆头短棒，思考时整圈缓慢转动；鼠标靠近时被「吸」得有长有短
+        // Rays: short round-ended bars; the whole ring turns slowly while it is thinking, and as the mouse comes near they get pulled to differing lengths
         let rayCount = PetView.rayCount
         for i in 0..<rayCount {
             let angle = CGFloat(i) / CGFloat(rayCount) * 2 * .pi + .pi / 8 + sunSpin
             let wobble = (1 - sT) * 2.2 * s * sin(t * 1.9 + CGFloat(i) * 1.3)
             let inner: CGFloat = 21 * s
-            // 反向排斥时不能把光芒缩没了，留个最短长度
+            // The reverse repulsion must not shrink a ray away to nothing, so keep a minimum length
             let outer = max(inner + 4 * s, (49 * s + wobble) * breathe + rayPull[i])
-            // 被拉长的那几根同时略微变粗，「伸手去够」比单纯变长更像有劲
+            // The stretched ones also thicken slightly; reaching out for something reads as more effortful than simply getting longer
             let w = 16.5 * s * (1 + 0.2 * max(0, rayPull[i]) / PetView.rayMaxPull)
             let ray = NSBezierPath(roundedRect: NSRect(x: inner, y: -w / 2,
                                                        width: outer - inner, height: w),
                                    xRadius: w / 2, yRadius: w / 2)
             ray.transform(using: AffineTransform(rotationByRadians: angle))
             ray.transform(using: AffineTransform(translationByX: cx, byY: cy))
-            // 染色只上在**远端**，根部保持本色：颜色是从仪表盘那边「蹭」过来的，
-            // 整根均匀上色反而看不出这层关系。伸得越长尖上越浓——
-            // 于是呼吸把光芒推向仪表时尖端亮起来，收回来时又褪掉
+            // The tint goes on only at the **far end**, with the root keeping its own colour: the colour has
+            // been rubbed off from the gauge over on that side, and tinting the whole ray evenly actually
+            // hides that relationship. The further it reaches, the denser the tip — so when the breathing
+            // pushes a ray towards a gauge the tip lights up, and it fades again as the ray draws back
             var tipColor = bodyDeep
             for side in tintSides {
                 let a = pow(max(0, cos(wrapPi(angle - side.angle))), 0.5) * side.amount
@@ -771,42 +802,44 @@ final class PetView: NSView {
             } else if let g = NSGradient(colors: [bodyDeep, bodyDeep, tipColor],
                                          atLocations: [0, 0.32, 1],
                                          colorSpace: .deviceRGB) {
-                // 内侧三成保持本色再开始过渡，颜色才是「聚在尖上」而不是整根渐变；
-                // 何况根部本来就被身体挡住了。
-                // 角度直接取光芒朝向：实测 -angle 在 90°/270° 会把颜色画到根部
+                // The inner three tenths keep their own colour before the transition begins, so the colour
+                // gathers at the tip rather than gradating along the whole ray; besides, the root is hidden
+                // behind the body anyway.
+                // The angle is simply the ray's own direction: measured, -angle paints the colour onto the root at 90°/270°
                 g.draw(in: ray, angle: angle * 180 / .pi)
             }
         }
 
-        // 身体：上浅下深的渐变，毛绒团子的体积感
+        // Body: a gradient that is light at the top and dark at the bottom, giving a fluffy dumpling its sense of volume
         let r = 30 * s * breathe
         let bodyRect = NSRect(x: cx - r, y: cy - r, width: r * 2, height: r * 2)
         let body = NSBezierPath(ovalIn: bodyRect)
         grad?.draw(in: body, angle: -90)
 
-        // 心情：0 = 轻松，1 = 快用满了。眉毛与嘴形跟着它走，
-        // 光靠嘴角那点弧度在这个尺寸下根本看不出来
+        // Mood: 0 = relaxed, 1 = nearly used up. The eyebrows and the mouth shape follow it, because at this
+        // size the bit of curve at the corner of the mouth on its own simply cannot be seen
         let worry = max(0, min(1, (stress - 0.5) / 0.35))
 
-        // 豆豆眼
+        // Bean eyes
         let eyeY = cy - 2 * s
         let blinkT = blinkUntil - t
         let lidClose = blinkT > 0 ? easeInOut(1 - abs(blinkT / 0.16 - 0.5) * 2) : 0
         NSColor.faceDark.setFill()
         NSColor.faceDark.setStroke()
-        // 眨眼和入睡合成同一个「闭合度」。入睡那 0.6 秒里眼睛是慢慢阖上的，
-        // 不是突然换成一条弧线：所以椭圆压扁与弧线淡入有一段重叠
+        // Blinking and falling asleep are folded into a single closedness. Over the 0.6 seconds of falling
+        // asleep the eyes shut gradually rather than suddenly switching to an arc, so the flattening of the
+        // ellipse and the fading in of the arc overlap for a stretch
         let lid = max(lidClose, sT)
         let arcAlpha = easeInOut(max(0, (lid - 0.62) / 0.38))
         for dx in [-12.0 * s, 12.0 * s] {
-            // 眼珠看向鼠标；闭眼时不偏，免得弧线歪掉
+            // The pupils look towards the mouse; no offset while the eyes are shut, or the arc ends up crooked
             let ex = cx + dx + eyeShift.x * (1 - sT)
             let eyeY = eyeY + eyeShift.y * (1 - sT)
             let h = 6 * s * (1 - lid)
-            let dT = deadT                      // 到上限时活着的那套眼睛整体让位给 ✖
+            let dT = deadT                      // at the ceiling the whole living set of eyes gives way to the ✖
             if h > 0.2, arcAlpha < 1, dT < 1 {
-                // 纯豆豆眼，不点高光：这个尺寸下那点白只有 0.6pt，
-                // 不是高光而是一粒噪点，把干净的剪影搞脏了
+                // Plain bean eyes, no catchlight: at this size that speck of white is only 0.6pt, which is
+                // not a highlight but a grain of noise, and it dirties an otherwise clean silhouette
                 NSColor.faceDark.withAlphaComponent((1 - arcAlpha) * (1 - dT)).setFill()
                 NSBezierPath(ovalIn: NSRect(x: ex - 2.4 * s, y: eyeY - h / 2,
                                             width: 4.8 * s, height: h)).fill()
@@ -822,8 +855,8 @@ final class PetView: NSView {
                 NSColor.faceDark.withAlphaComponent(arcAlpha * (1 - dT)).setStroke()
                 p.stroke()
             }
-            // 用满了：眼睛变 ✖。压在睡眠态之上——没有会话在跑的时候，
-            // 「已经用完了」比「在打盹」是更该先读到的一件事
+            // Used up: the eyes turn into ✖. This sits on top of the sleeping state — when no session is
+            // running, "it is already used up" is the thing you ought to read first, ahead of "it is dozing"
             if dT > 0.01 {
                 let r = 3.2 * s
                 let x = NSBezierPath()
@@ -840,8 +873,9 @@ final class PetView: NSView {
         NSColor.faceDark.setFill()
         NSColor.faceDark.setStroke()
 
-        // 眉毛：只在开始紧张后才长出来，内高外低（「/ \」）＝担心的样子。
-        // 这是三种心情里最一眼能认出来的差别
+        // Eyebrows: they only grow in once it starts getting tense, high on the inside and low on the
+        // outside ("/ \") = a worried look.
+        // This is the most instantly recognisable difference between the three moods
         if worry * (1 - sT) > 0.02 {
             let lift = 2.4 * s * worry
             let browY = eyeY - 6.5 * s
@@ -860,7 +894,7 @@ final class PetView: NSView {
             NSColor.faceDark.setStroke()
         }
 
-        // 嘴：开心是咧开的大弧，紧张是抿平，用满了是明显的倒弧
+        // Mouth: happy is a wide open arc, tense is pressed flat, used up is a pronounced inverted arc
         let mouth = NSBezierPath()
         let my = cy + 6.5 * s
         if sT > 0.01 {
@@ -871,8 +905,9 @@ final class PetView: NSView {
             o.stroke()
         }
         if stress < 0.5 {
-            // 控制点从 ±2.6 移到 ±4.8：靠得太近会把曲线拽成尖底的 V，
-            // 往外挪才是圆润的 U。同时把深度收一点，配合变宽保持同样的开口
+            // The control points moved from ±2.6 out to ±4.8: too close together and the curve gets dragged
+            // into a sharp-bottomed V, whereas moving them outwards gives a rounded U. The depth is pulled
+            // in a little at the same time, so the wider shape keeps the same opening
             let grin = 4.9 * s + 1.8 * s * perk
             mouth.move(to: NSPoint(x: cx - 6.4 * s, y: my - 1.2 * s))
             mouth.curve(to: NSPoint(x: cx + 6.4 * s, y: my - 1.2 * s),
@@ -880,9 +915,9 @@ final class PetView: NSView {
                         controlPoint2: NSPoint(x: cx + 4.8 * s, y: my + grin))
         } else if stress < 0.8 {
             mouth.move(to: NSPoint(x: cx - 4.2 * s, y: my + 1.6 * s))
-            mouth.line(to: NSPoint(x: cx + 4.2 * s, y: my + 1.6 * s))   // 抿成一条线
+            mouth.line(to: NSPoint(x: cx + 4.2 * s, y: my + 1.6 * s))   // pressed into a line
         } else {
-            // 同理，倒弧的控制点也往外挪，免得下巴尖成一个角
+            // Same reasoning: the inverted arc's control points move outwards too, so the chin does not come to a point
             mouth.move(to: NSPoint(x: cx - 5.6 * s, y: my + 4.0 * s))
             mouth.curve(to: NSPoint(x: cx + 5.6 * s, y: my + 4.0 * s),
                         controlPoint1: NSPoint(x: cx - 4.2 * s, y: my - 0.6 * s),
@@ -911,17 +946,17 @@ final class PetView: NSView {
         }
     }
 
-    /// 内环下方的小标签：全部模型显示「每周」，专属限额显示模型名
+    /// The small label under the inner ring: the all-models limit shows "Weekly", a model-specific limit shows the model name
     private func weeklyShortName(_ row: UsageRow?) -> String {
         guard let l = row?.label else { return "每周" }
         if l.contains("全部模型") { return "每周" }
         return l.replacingOccurrences(of: "每周 · ", with: "")
     }
 
-    // MARK: 两个并排仪表（已用比例）
+    // MARK: The two side-by-side gauges (proportion used)
 
 
-    /// 圆环用该侧的固定强调色（见 Theme.swift 里为什么不再按用量换色）
+    /// The ring uses that side's fixed accent colour (see Theme.swift for why the colour no longer changes with usage)
     private func gaugeAccent(isLeft: Bool) -> NSColor {
         isLeft ? .ringLeft : .ringRight
     }
@@ -930,7 +965,7 @@ final class PetView: NSView {
         let r: CGFloat = 21 * scale
         let lw: CGFloat = 5 * scale
         let rings = model.ringRows
-        // 左仪表 — 太阳 — 右仪表，三等分居中
+        // left gauge — sun — right gauge, centred in three equal parts
         let gauges: [(UsageRow?, String, CGFloat)] = [
             (rings.outer, "5小时", card.minX + card.width * 0.17),
             (rings.inner, weeklyShortName(rings.inner), card.maxX - card.width * 0.17),
@@ -947,14 +982,16 @@ final class PetView: NSView {
             drawArc(center: center, radius: r, lineWidth: lw,
                     from: 0, to: 360, color: NSColor.labelColor.withAlphaComponent(0.14))
             if shown > 0.002 {
-                // 从正上方顺时针填充。本视图 isFlipped，画布上下翻转会把旋向也翻过来，
-                // 所以「角度递增」在屏幕上才是顺时针（离屏渲染逐格核对过）
+                // Fill clockwise starting from straight up. This view is isFlipped, and flipping the canvas
+                // vertically flips the direction of rotation with it, which is why increasing angles are
+                // what reads as clockwise on screen (checked frame by frame with off-screen rendering)
                 drawArc(center: center, radius: r, lineWidth: lw,
                         from: -90, to: -90 + 360 * Double(shown),
                         color: gaugeAccent(isLeft: cx < card.midX), round: true)
             }
-            // 11pt 的行高约 13pt，原来数字框从 midY-10 起、标签框从 midY+3 起，
-            // 正好首尾相接，两行字贴在一起。整体上移并留出 2.6pt 间距
+            // 11pt text has a line height of about 13pt, and the number box used to start at midY-10 with
+            // the label box at midY+3, so they met exactly end to end and the two lines of text were stuck
+            // together. Moved the whole thing up and left a 2.6pt gap
             drawText("\(row.percent)%",
                      in: NSRect(x: cx - 22, y: midY - 13, width: 44, height: 14),
                      font: .monospacedDigitSystemFont(ofSize: 11, weight: .semibold),
@@ -965,7 +1002,7 @@ final class PetView: NSView {
         }
     }
 
-    /// 统一的画弧：本视图翻转，clockwise:true + 角度递减 = 视觉顺时针
+    /// One shared arc helper: this view is flipped, so clockwise:true + decreasing angles = visually clockwise
     private func drawArc(center: NSPoint, radius: CGFloat, lineWidth: CGFloat,
                          from: Double, to: Double, color: NSColor, round: Bool = false) {
         let p = NSBezierPath()
@@ -977,7 +1014,7 @@ final class PetView: NSView {
         p.stroke()
     }
 
-    // MARK: 会话块
+    // MARK: Session blocks
 
     private func drawSessionBlock(_ s: SessionActivity, at y: CGFloat, in card: NSRect) {
         let box = NSRect(x: card.minX + 9, y: y,
@@ -998,7 +1035,7 @@ final class PetView: NSView {
         if s.waiting {
             let e = elapsedText(since: s.since)
             sub = e.isEmpty ? "等你选择" : "等你选择 · \(e)"
-            subColor = .labelColor        // 醒目交给右侧呼吸圆点，文字保证可读
+            subColor = .labelColor        // grabbing attention is left to the breathing dot on the right; the text only has to stay readable
         } else if s.background {
             let e = elapsedText(since: s.since)
             sub = e.isEmpty ? "后台任务运行中" : "后台任务 · \(e)"
@@ -1006,7 +1043,7 @@ final class PetView: NSView {
             let e = elapsedText(since: s.since)
             sub = e.isEmpty ? "正在思考" : "正在思考 · \(e)"
         } else if s.stalled {
-            // 只是很久没有新记录了，不确定跑没跑完，别谎报「已完成」
+            // It has just been a long time with no new records; we do not know whether it finished, so do not falsely report "done"
             let e = elapsedText(since: s.finishedAt)
             sub = e.isEmpty ? "无响应" : "无响应 · 已 \(e) 无更新"
         } else {
@@ -1017,7 +1054,7 @@ final class PetView: NSView {
                  font: .systemFont(ofSize: 9, weight: s.waiting ? .semibold : .regular),
                  color: subColor)
 
-        // 上下文占用：一行文字 + 一条细进度条
+        // Context usage: one line of text + a thin progress bar
         if s.ctxLimit > 0, s.ctxTokens > 0 {
             let frac = min(1, CGFloat(s.ctxTokens) / CGFloat(s.ctxLimit))
             let pct = Int((frac * 100).rounded())
@@ -1041,9 +1078,10 @@ final class PetView: NSView {
                 let fill = NSBezierPath(roundedRect: NSRect(x: barX, y: barY,
                                                             width: max(3, barW * frac), height: 3),
                                         xRadius: 1.5, yRadius: 1.5)
-                // 上下文进度条并进珊瑚族，不再单独用一套绿/琥珀/红。
-                // 过 60% 之后往深砖红压，仍然有「快满了」的提示，
-                // 但用的是太阳身体加深那同一个色，不引入新色相
+                // The context progress bar has been folded into the coral family and no longer has a
+                // green/amber/red set of its own. Past 60% it is pushed towards a deep brick red, so there
+                // is still a "nearly full" hint, but it uses the very colour the sun's body darkens towards
+                // and introduces no new hue
                 let heat = max(0, min(1, (frac - 0.6) / 0.4))
                 (NSColor.coralDeep.blended(withFraction: heat * 0.75, of: .sunDeepen)
                     ?? .coralDeep).setFill()
@@ -1054,10 +1092,10 @@ final class PetView: NSView {
         let cx = box.maxX - 15
         let cy = box.minY + 15
         if s.waiting {
-            // 等待输入：呼吸的实心圆点，比转圈更像「在等你」
+            // Waiting for input: a breathing solid dot, which reads more like "waiting for you" than a spinner does
             let pulse = 0.55 + 0.45 * (0.5 + 0.5 * sin(t * 3.4))
-            // 等待输入也用珊瑚族：它和「在跑」的区别靠形状（实心呼吸点 vs 转圈），
-            // 不必再多一个色相
+            // Waiting for input uses the coral family too: what sets it apart from "running" is the shape
+            // (a solid breathing dot vs a spinner), so there is no need for yet another hue
             NSColor.coralDeep.withAlphaComponent(pulse).setFill()
             let rr: CGFloat = 5
             NSBezierPath(ovalIn: NSRect(x: cx - rr, y: cy - rr,
@@ -1065,28 +1103,29 @@ final class PetView: NSView {
         } else if s.busy {
             drawSpinner(center: NSPoint(x: cx, y: cy), radius: 7)
         } else {
-            // 未读圆点，缓慢呼吸；点一下即消
+            // Unread dot, breathing slowly; one click and it is gone
             let pulse = 0.55 + 0.45 * easeInOut((sin(t * 1.6) + 1) / 2)
             NSColor.coralLight.withAlphaComponent(pulse).setFill()
             NSBezierPath(ovalIn: NSRect(x: cx - 4, y: cy - 4, width: 8, height: 8)).fill()
         }
     }
 
-    /// 首尾无缝的转圈：弧长在生长与收缩之间循环，相位归一化，wrap 处完全连续
+    /// A spinner that loops seamlessly: the arc length cycles between growing and shrinking, the phase is normalised, and it is perfectly continuous where it wraps
     private func drawSpinner(center: NSPoint, radius: CGFloat) {
         drawArc(center: center, radius: radius, lineWidth: 2.2,
                 from: 0, to: 360, color: NSColor.labelColor.withAlphaComponent(0.14))
 
-        // 尾角每周期正好走满 360°，弧长按余弦在 26°–290° 之间振荡（首尾导数为 0），
-        // 因此 phase 回绕处角度与弧长都完全连续，接得上。
+        // The tail angle covers exactly 360° per cycle and the arc length oscillates by cosine between 26°
+        // and 290° (with zero derivative at both ends), so where the phase wraps round both the angle and
+        // the arc length are perfectly continuous and join up.
         let p = Double(spinPhase)
         let sweep = 26 + 264 * (1 - cos(2 * .pi * p)) / 2
-        let tail = -90 + p * 360        // 角度递增 = 屏幕上顺时针（本视图 isFlipped）
+        let tail = -90 + p * 360        // increasing angles = clockwise on screen (this view is isFlipped)
         drawArc(center: center, radius: radius, lineWidth: 2.2,
                 from: tail, to: tail + sweep, color: .coralLight, round: true)
     }
 
-    // MARK: 悬停详情
+    // MARK: Hover details
 
     private func drawDetails(from startY: CGFloat, in card: NSRect) {
         let innerX = card.minX + 13
@@ -1104,10 +1143,12 @@ final class PetView: NSView {
         }
         y += 19
 
-        // 圆点的颜色标的是**这一条对应哪个仪表**，不是用量高低——和圆环同一套规则。
-        // 之前这里还按 50/80 三档换色，圆环却已经改成固定色了，两处规则打架：
-        // 同一个 60%，圆环是杏粉、列表里却是琥珀，看着像两套系统。
-        // 没上仪表的那几条（比如没被选中的周限额）给中性灰，一眼能看出「这条没画成圈」。
+        // The dot's colour marks **which gauge this row belongs to**, not how high the usage is — the same
+        // rule as the rings. This used to still switch colour across three bands at 50/80 while the rings
+        // had already changed to fixed colours, so the two rules fought each other: at one and the same
+        // 60%, the ring was apricot pink but the list entry was amber, which looks like two different
+        // systems. The rows that did not make it onto a gauge (an unselected weekly limit, say) get a
+        // neutral grey, so you can see at a glance that this one is not drawn as a ring.
         let shownRows = model.ringRows
         if model.rows.isEmpty {
             drawText(model.needsLogin ? "未登录，只显示会话状态" : "暂时取不到用量",
@@ -1129,8 +1170,8 @@ final class PetView: NSView {
                      in: NSRect(x: innerX + 11, y: y, width: innerW - 11 - 96, height: 14),
                      font: .systemFont(ofSize: 9.5),
                      color: .secondaryLabelColor)
-            // 数字不再按用量换色：颜色已经不承担「多满」这个信息了，
-            // 那是弧长和数字本身的事
+            // The numbers no longer change colour with usage: colour no longer carries the "how full"
+            // information, that is the job of the arc length and of the number itself
             drawText("\(row.percent)%",
                      in: NSRect(x: innerX + innerW - 96, y: y, width: 40, height: 14),
                      font: .monospacedDigitSystemFont(ofSize: 9.5, weight: .medium),
@@ -1143,7 +1184,7 @@ final class PetView: NSView {
         }
 
         let footer: String
-        // 上面已经写过「未登录，只显示会话状态」了，底部不再重复一遍
+        // The line above has already said "not logged in, showing session status only", so do not repeat it at the bottom
         if let msg = model.errorMsg, !model.rows.isEmpty {
             footer = "⚠︎ " + (msg.components(separatedBy: "\n").first ?? msg)
         } else if let last = model.lastFetch {

@@ -1,10 +1,10 @@
-// Sundial — 桌面宠物，显示 Claude Code 用量与会话状态
-// 本文件由 main.swift 拆分而来
+// Sundial — a desktop pet that shows Claude Code usage and session status
+// This file was split out of main.swift
 
 import AppKit
 import Foundation
 
-// MARK: - 用量接口
+// MARK: - Usage API
 
 func labelFor(key: String) -> (String, Int)? {
     let k = key.lowercased()
@@ -18,7 +18,7 @@ func labelFor(key: String) -> (String, Int)? {
     if k.contains("sonnet") { return ("每周 · Sonnet", 4) }
     if k.contains("cowork") { return ("每周 · Cowork", 5) }
     if k.contains("routine") { return ("每周 · Routines", 6) }
-    if k.contains("extra") || k.contains("overage") { return nil } // 额外付费用量，暂不展示
+    if k.contains("extra") || k.contains("overage") { return nil } // extra paid-for usage, not shown for now
     if k.contains("seven_day") {
         let name = k.replacingOccurrences(of: "seven_day_", with: "").capitalized
         return ("每周 · \(name)", 7)
@@ -36,14 +36,14 @@ func parseResetDate(_ v: Any?) -> Date? {
         if let d = f2.date(from: s) { return d }
     }
     if let n = v as? Double {
-        // 兼容秒 / 毫秒时间戳
+        // cope with both second and millisecond timestamps
         return Date(timeIntervalSince1970: n > 4_000_000_000 ? n / 1000 : n)
     }
     return nil
 }
 
 
-/// 限额行右侧用的紧凑重置时间："4h32m" / "周四 14:00"
+/// Compact reset time used on the right-hand side of a limit row: "4h32m" / "Thu 14:00"
 func compactReset(_ d: Date?) -> String {
     guard let d else { return "" }
     let secs = d.timeIntervalSinceNow
@@ -76,7 +76,7 @@ func parseUsage(_ data: Data) -> (rows: [UsageRow], tier: String)? {
     var rows: [UsageRow] = []
     func consider(key: String, obj: [String: Any], activeFlag: Bool = false) {
         guard let mapped = labelFor(key: key) else { return }
-        // 顶层对象用 utilization；limits 数组用 percent
+        // the top-level object uses utilization; the limits array uses percent
         var util: Double?
         for f in ["utilization", "percent"] {
             if let u = obj[f] as? Double { util = u; break }
@@ -84,19 +84,21 @@ func parseUsage(_ data: Data) -> (rows: [UsageRow], tier: String)? {
         }
         guard let u = util else { return }
         let reset = parseResetDate(obj["resets_at"] ?? obj["resetsAt"])
-        // 不夹到 100：超限时就该看见「106%」，夹住只会显示成正好用完，
-        // 反而看不出已经超了。上界 999 只是防脏数据把版面撑破
+        // Don't clamp to 100: when you're over the limit you ought to see "106%".
+        // Clamping just shows it as exactly used up, which hides that you've gone
+        // over. The 999 upper bound is only there to stop dirty data blowing the layout apart
         rows.append(UsageRow(label: mapped.0,
                              percent: Int(max(0, min(999, u)).rounded()),
                              resetAt: reset,
                              priority: mapped.1))
     }
-    // 顶层键按名字排序后再遍历：Swift 字典无序，撞名时若不定序，
-    // 同一标签取到哪一条会随机变化
+    // Walk the top-level keys in sorted name order: Swift dictionaries are unordered,
+    // so without a fixed order, when two keys collide on the same label, which one
+    // you end up with varies at random
     for k in root.keys.sorted() {
         if let d = root[k] as? [String: Any] { consider(key: k, obj: d) }
     }
-    // limits 数组：用 kind + scope.model.display_name 拼出名字
+    // limits array: build the name out of kind + scope.model.display_name
     if let limits = root["limits"] as? [[String: Any]] {
         for item in limits {
             var key = (item["kind"] as? String) ?? (item["type"] as? String)
@@ -105,25 +107,27 @@ func parseUsage(_ data: Data) -> (rows: [UsageRow], tier: String)? {
                let scope = item["scope"] as? [String: Any],
                let model = scope["model"] as? [String: Any],
                let name = model["display_name"] as? String, !name.isEmpty {
-                key = "seven_day_" + name          // 交给 labelFor 归类
+                key = "seven_day_" + name          // hand it to labelFor to classify
             }
             consider(key: key, obj: item,
                      activeFlag: (item["is_active"] as? Int ?? 0) == 1)
         }
     }
-    // 去重（同名保留先出现的），按优先级排序
+    // de-duplicate (on a name clash keep the one that appeared first), then sort by priority
     var seen = Set<String>()
     rows = rows.filter { seen.insert($0.label).inserted }
         .sorted { $0.priority < $1.priority }
     if rows.count > 5 { rows = Array(rows.prefix(5)) }
 
-    // 套餐名：原先只认死 rate_limit_tier 这一个键，而接口早就不返回它了，
-    // 徽章其实一直是空的也没人发现。改成认几个常见写法，接口换名字还能接得住
+    // Plan name: this originally recognised only the one hard-coded rate_limit_tier key,
+    // and the API had long since stopped returning it — so the badge had actually been
+    // empty the whole time and nobody noticed. Changed to recognise a few common
+    // spellings, so it can still catch it if the API renames the field
     var rawTier: String?
     outer: for k in ["rate_limit_tier", "tier", "subscription_type",
                      "subscription", "plan", "plan_type"] {
         if let s = root[k] as? String, !s.isEmpty { rawTier = s; break }
-        if let d = root[k] as? [String: Any] {          // 也接受包了一层的写法
+        if let d = root[k] as? [String: Any] {          // also accept the form wrapped in one extra layer
             for f in ["display_name", "name", "type", "id"] {
                 if let s = d[f] as? String, !s.isEmpty { rawTier = s; break outer }
             }
@@ -132,23 +136,23 @@ func parseUsage(_ data: Data) -> (rows: [UsageRow], tier: String)? {
     return (rows, prettyTier(rawTier))
 }
 
-// MARK: - 取数调度
+// MARK: - Fetch scheduling
 
 final class UsageFetcher {
     var onUpdate: (() -> Void)?
     private let model: PetModel
     private var nextFetchAt = Date.distantPast
-    private var inFlight = false      // 同一时刻只允许一个请求
-    private var forcePending = false  // 请求进行中收到的手动刷新，完成后立即补一次
+    private var inFlight = false      // only one request allowed at any one time
+    private var forcePending = false  // a manual refresh that arrived mid-request; run one more as soon as it finishes
     private let normalInterval: TimeInterval = 60
 
-    // 令牌缓存：只在启动后读一次钥匙串，避免重复触发系统授权弹窗
+    // Token cache: read the keychain only once after launch, to avoid triggering the system authorisation prompt over and over
     private let tokenLock = NSLock()
     private var cachedToken: StoredToken?
     private var didLoadToken = false
-    private var keychainBlocked = false   // 上次读钥匙串失败，等用户手动刷新再试
-    private var tokenEpoch = 0            // 每次退出登录 +1，作废在途的刷新
-    // 只在后台 fetch 线程读写（inFlight 保证同一时刻只有一个 fetch）
+    private var keychainBlocked = false   // the last keychain read failed; wait for a manual refresh before trying again
+    private var tokenEpoch = 0            // +1 on every sign-out, invalidating any refresh still in flight
+    // only read and written on the background fetch thread (inFlight guarantees there is only ever one fetch at a time)
     private var refreshStreak = 0
 
     private static let signedOutKey = "petUserSignedOut"
@@ -167,9 +171,9 @@ final class UsageFetcher {
         return tokenEpoch
     }
 
-    /// 登录成功后由主线程写入
+    /// Written by the main thread after a successful sign-in
     func adoptToken(_ t: StoredToken) {
-        userSignedOut = false   // 登录成功才解除「已退出」
+        userSignedOut = false   // only a successful sign-in lifts the "signed out" flag
         tokenLock.lock()
         cachedToken = t
         didLoadToken = true
@@ -177,7 +181,7 @@ final class UsageFetcher {
         tokenLock.unlock()
     }
 
-    /// 内部失效（令牌被服务端否定）：清掉自己的令牌，但仍允许回退到 CLI 凭证
+    /// Internal invalidation (the server rejected the token): drop our own token, but still allow falling back to the CLI credentials
     func signOut() {
         tokenLock.lock()
         tokenEpoch &+= 1
@@ -187,13 +191,13 @@ final class UsageFetcher {
         TokenStore.clear()
     }
 
-    /// 用户主动退出：额外记住「已退出」，不再自动回退到 CLI 凭证
+    /// A sign-out the user asked for: additionally remember that they are "signed out", and stop falling back to the CLI credentials automatically
     func signOutByUser() {
         userSignedOut = true
         signOut()
     }
 
-    /// 唯一允许写令牌的入口：纪元不符（期间用户退出登录了）就整单丢弃
+    /// The only entry point allowed to write the token: if the epoch doesn't match (the user signed out in the meantime), throw the whole lot away
     @discardableResult
     private func commitToken(_ t: StoredToken, epoch: Int) -> Bool {
         tokenLock.lock()
@@ -205,18 +209,18 @@ final class UsageFetcher {
         tokenLock.unlock()
         guard ok else { return false }
         TokenStore.save(t)
-        if tokenGeneration != epoch { signOut(); return false }  // 落盘期间又退了，撤销
+        if tokenGeneration != epoch { signOut(); return false }  // they signed out again while it was being written to disk, so undo it
         return true
     }
 
-    /// 主线程（菜单）用：只看内存缓存，绝不触碰钥匙串，避免弹窗阻塞 UI
+    /// For the main thread (the menu): looks only at the in-memory cache and never touches the keychain, so a prompt can't block the UI
     var hasToken: Bool {
         tokenLock.lock()
         defer { tokenLock.unlock() }
         return cachedToken != nil
     }
 
-    /// 后台线程用：首次会读钥匙串（可能弹窗），读取期间不持锁
+    /// For the background thread: the first call reads the keychain (which may raise a prompt); the lock is not held while reading
     private func currentToken() -> StoredToken? {
         tokenLock.lock()
         let alreadyLoaded = didLoadToken
@@ -234,7 +238,7 @@ final class UsageFetcher {
             case .none:
                 cachedToken = nil; didLoadToken = true; keychainBlocked = false
             case .failed:
-                // 不把失败当成结论，但也别让 60 秒轮询反复弹授权框
+                // don't treat a failure as the final answer, but don't let the 60-second poll keep throwing up the authorisation dialog either
                 cachedToken = nil; didLoadToken = true; keychainBlocked = true
             }
         }
@@ -247,7 +251,7 @@ final class UsageFetcher {
         return keychainBlocked
     }
 
-    // tick / forceRefresh / finish 只在主线程调用（定时器与 UI 事件）
+    // tick / forceRefresh / finish are only ever called on the main thread (timer and UI events)
     func tick() {
         guard !inFlight else { return }
         guard forcePending || Date() >= nextFetchAt else { return }
@@ -259,7 +263,7 @@ final class UsageFetcher {
         }
     }
 
-    /// 用户主动刷新：也是唯一重新尝试钥匙串读取的入口（自动轮询不重试，免得弹窗骚扰）
+    /// A refresh the user asked for: also the only place that retries the keychain read (the automatic poll doesn't retry, so it can't pester you with prompts)
     func forceRefresh() {
         tokenLock.lock()
         if keychainBlocked {
@@ -282,13 +286,13 @@ final class UsageFetcher {
             self.model.errorMsg = msg
             self.model.asleep = sleep
             self.model.loading = false
-            self.model.needsLogin = false  // 走到这里说明令牌已取到，属于可自动重试的失败
+            self.model.needsLogin = false  // getting here means we did obtain a token, so this is a failure we can retry automatically
             self.finish(retryAfter: retryAfter)
             self.onUpdate?()
         }
     }
 
-    /// 放弃本次取数（用户中途退出登录），但必须收尾，否则 inFlight 永远挂着
+    /// Give up on this fetch (the user signed out midway), but we still have to tidy up, otherwise inFlight stays stuck forever
     private func abandon() {
         DispatchQueue.main.async {
             self.model.loading = false
@@ -297,7 +301,7 @@ final class UsageFetcher {
         }
     }
 
-    /// 没有可用令牌：进入待登录状态，不再频繁重试
+    /// No usable token: go into the awaiting-sign-in state and stop retrying so often
     private func needLogin(_ msg: String) {
         DispatchQueue.main.async {
             self.model.needsLogin = true
@@ -310,20 +314,20 @@ final class UsageFetcher {
         }
     }
 
-    /// 取一个可用的 access token：优先桌宠自己登录的，其次已有的 Claude Code CLI 凭证
+    /// Get a usable access token: prefer the one the pet signed in with itself, then any existing Claude Code CLI credentials
     private func resolveToken(epoch: Int) throws
         -> (token: String, tier: String?, isOwn: Bool, justRefreshed: Bool) {
         if var t = currentToken() {
             var refreshed = false
             if t.isExpiring, !t.refreshToken.isEmpty {
-                t = try refreshToken(t)   // 失败时抛 OAuthError
+                t = try refreshToken(t)   // throws OAuthError on failure
                 guard commitToken(t, epoch: epoch) else { throw StaleSignOut() }
                 refreshed = true
             }
             return (t.accessToken, nil, true, refreshed)
         }
         if isKeychainBlocked { throw CredError.keychainDenied }
-        if userSignedOut { throw CredError.notLoggedIn }  // 主动退出后不回退到 CLI 凭证
+        if userSignedOut { throw CredError.notLoggedIn }  // after a deliberate sign-out, don't fall back to the CLI credentials
         let creds = try loadCredentials()
         return (creds.accessToken, creds.subscriptionType, false, false)
     }
@@ -337,7 +341,7 @@ final class UsageFetcher {
             abandon()
             return
         } catch let e as OAuthError {
-            // 只有服务端明确否定凭证才登出；网络/限流/5xx 一律保留令牌稍后重试
+            // only sign out when the server has explicitly rejected the credentials; for network errors / rate limiting / 5xx always keep the token and retry later
             guard e.isCredentialRejection else {
                 fail("网络暂时不可用，稍后自动重试", sleep: true, retryAfter: 120)
                 return
@@ -349,7 +353,7 @@ final class UsageFetcher {
             needLogin("钥匙串读取被拒\n双击我重试或重新登录")
             return
         } catch {
-            // CLI 凭证不存在／无 claudeAiOauth／已过期，都归结为「请登录」
+            // no CLI credentials / no claudeAiOauth / already expired — they all come down to "please sign in"
             needLogin("未登录\n双击我登录 Claude 账号")
             return
         }
@@ -372,7 +376,7 @@ final class UsageFetcher {
             sem.signal()
         }
         task.resume()
-        // 只有 wait 成功返回后才能安全读取捕获变量（signal 提供内存序）
+        // only once wait has returned successfully is it safe to read the captured variables (signal supplies the memory ordering)
         if sem.wait(timeout: .now() + 20) == .timedOut {
             task.cancel()
             fail("请求超时，稍后自动重试", sleep: true, retryAfter: 90)
@@ -393,8 +397,9 @@ final class UsageFetcher {
             }
             DispatchQueue.main.async {
                 self.model.rows = parsed.rows
-                // 三个分支都要赋值：漏掉最后一个，换账号后旧套餐名会一直挂在
-                // 新账号的数字旁边
+                // all three branches have to assign: miss the last one out and, after
+                // switching accounts, the old plan name keeps hanging around next to
+                // the new account's numbers
                 if !parsed.tier.isEmpty {
                     self.model.tier = parsed.tier
                 } else if let sub = resolved.tier {
@@ -411,7 +416,7 @@ final class UsageFetcher {
                 self.onUpdate?()
             }
         case 401:
-            // 令牌被拒：试一次刷新。本轮已经刷过就不再刷，且连续刷新有上限，避免无限轮转。
+            // Token rejected: try refreshing once. If this round has already refreshed, don't refresh again, and cap the number of consecutive refreshes so it can't spin forever.
             if resolved.isOwn, !resolved.justRefreshed, refreshStreak < 3,
                let t = currentToken(), !t.refreshToken.isEmpty {
                 do {
@@ -433,7 +438,7 @@ final class UsageFetcher {
                 needLogin("未登录\n双击我登录 Claude 账号")
             }
         case 403:
-            // 权限不足（scope 不对等），刷新解决不了，别空转
+            // not enough permission (the scopes don't line up); refreshing won't fix it, so don't spin on it
             fail("接口拒绝访问 (403)\n可尝试重新登录", sleep: true, retryAfter: 600)
         case 429:
             fail("接口限流中，稍后自动重试", sleep: false, retryAfter: 300)
