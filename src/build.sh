@@ -84,7 +84,7 @@ cp Info.plist "$APP/Contents/Info.plist"
                         "$APP/Contents/Info.plist" >/dev/null
 cp "$BUILD/$APP_NAME" "$APP/Contents/MacOS/$APP_NAME"
 # 图标（由 图标生成器.swift 生成，改了太阳要重跑一次那个脚本）
-# Sundial.icns 是「当前启用的那份」，由 图标/生成图标.sh 产出、不入库；
+# Sundial.icns 是「当前启用的那份」，由 icon/make-icons.sh 产出、不入库；
 # 新克隆下来时它不存在，回退到浅色版
 ICON="$APP_NAME.icns"
 [[ -f "$ICON" ]] || ICON="$APP_NAME-light.icns"
@@ -115,7 +115,7 @@ if [[ "$MODE" == "release" ]]; then
   xcrun stapler staple "$APP"         # 把公证票据钉进 App，离线也能验证
 
   rm -f "$ZIP"
-  OUT="$REPO/发给朋友/$APP_NAME.zip"
+  OUT="$REPO/dist/$APP_NAME.zip"
   zip_app "$APP" "$OUT"
   echo "✓ 可分发文件：$OUT"
   spctl -a -vv "$APP" 2>&1 | tail -2
@@ -131,8 +131,8 @@ fi
 if [[ "$MODE" == "share" ]]; then
   clean_xattr "$APP"
   codesign --force --sign - "$APP"
-  OUT="$REPO/发给朋友/$APP_NAME.zip"
+  OUT="$REPO/dist/$APP_NAME.zip"
   rm -f "$OUT"
   zip_app "$APP" "$OUT"
-  echo "✓ 可分发文件：$OUT（朋友首次打开需去隔离，见 给朋友看的说明.txt）"
+  echo "✓ 可分发文件：$OUT（首次打开需去隔离，见 dist/INSTALL.txt）"
 fi

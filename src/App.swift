@@ -540,7 +540,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// 右键菜单与菜单栏菜单共用一套条目
     func buildMenu(forStatusItem: Bool) -> NSMenu {
         let menu = NSMenu()
-        // 版本号放在菜单最上面：朋友报问题时，第一句话就能问"菜单里写的多少"。
+        // 版本号放在菜单最上面：有人报问题时，第一句话就能问"菜单里写的多少"。
         // 取自 Info.plist，而它由 build.sh 从仓库根的 VERSION 写入——单一来源
         let ver = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString")
             as? String ?? "?"

@@ -11,6 +11,8 @@ works the moment you install it; only the two usage dials need Claude Max or Pro
 > **An unofficial personal project. It is not affiliated with Anthropic, nor
 > endorsed or supported by them.** The usage half depends on an undocumented
 > endpoint and may stop working at any time — see [Please read this first](#-please-read-this-first).
+>
+> Written with Claude Code, reviewed and tested by a human.
 
 <p align="center">
   <img src="docs/demo.gif" width="380"
@@ -23,6 +25,18 @@ works the moment you install it; only the two usage dials need Claude Max or Pro
 Left: light mode · Right: dark mode (follows the system setting)<br>
 Dozing → expand on hover → a session begins → the rays reach towards the cursor →
 left alone, the dials pull and push the rays into a slow breath → finished, unread → folded away
+</sub></p>
+
+<p align="center">
+  <img src="docs/demo-dodge.gif" width="380"
+       alt="Light mode, nothing running: the sleeping sun pulls its rays away from the approaching cursor and leans back">
+  <img src="docs/demo-dodge-dark.gif" width="380"
+       alt="Dark mode: the same, in the dark palette">
+</p>
+
+<p align="center"><sub>
+With nothing running, the gravity reverses: the sleeping sun <em>shies away</em> from
+the cursor rather than reaching for it — rays drawn in on the near side, pushed out on the far side.
 </sub></p>
 
 ---
@@ -196,20 +210,20 @@ a required step. If the dials are already turning, you can ignore it.
 
 ```bash
 # macOS (requires the Xcode command line tools)
-cd 源码
+cd src
 ./build.sh              # local debug build, installed alongside the repository
-./build.sh share        # universal binary (Intel + Apple silicon), packaged into 发给朋友/
+./build.sh share        # universal binary (Intel + Apple silicon), packaged into dist/
 ./build.sh release      # requires a Developer ID certificate; includes notarisation
 
 # Icons (only needed after changing the shape of the sun)
-./图标/生成图标.sh          # light background
-./图标/生成图标.sh dark     # dark background
+./icon/make-icons.sh          # light background
+./icon/make-icons.sh dark     # dark background
 
 # Windows build, cross-compiled on macOS (requires the .NET 10 SDK: brew install dotnet)
-cd Windows源码
-./构建.sh x64           # win-x64
-./构建.sh arm64         # win-arm64 (Snapdragon X and similar)
-./构建.sh check         # verification only: core logic plus offscreen renders to PNG
+cd src-windows
+./build.sh x64           # win-x64
+./build.sh arm64         # win-arm64 (Snapdragon X and similar)
+./build.sh check         # verification only: core logic plus offscreen renders to PNG
 ```
 
 The `VERSION` file at the repository root is the single source of truth for the
@@ -221,24 +235,25 @@ version number; both build scripts read it.
 
 ```
 VERSION                     single source of truth for the version number
-源码/                       macOS build (Swift + AppKit)
+src/                        macOS build (Swift + AppKit)
   ├ PetView.swift           all drawing and animation state
   ├ App.swift               window, menus, tray, power, accessibility
   ├ Activity.swift          reads Claude Code transcripts
   ├ Usage.swift             usage endpoint parsing and fetch scheduling
   ├ Auth.swift              OAuth PKCE and token storage
   ├ Model.swift / Theme.swift
-  └ 图标/                   icon generator
-Windows源码/                Windows build (C# + Avalonia)
+  └ icon/                   icon generator
+src-windows/                Windows build (C# + Avalonia)
   ├ src/Sundial.Core/       pure logic, no UI dependency — testable on macOS
   ├ src/Sundial.App/        Avalonia interface
   └ tests/
      ├ LiveCheck/           runs the core layer against real local transcripts
      └ RenderCheck/         renders offscreen to PNG for frame-by-frame comparison with macOS
+dist/                       packaged builds produced by `./build.sh share`
 docs/                       images used by this README
-  └ 生成演示GIF.swift        offscreen frame-by-frame renderer for the demo GIFs
+  └ make-demo.swift         offscreen frame-by-frame renderer for the demo GIFs
                             (not a screen recording — reruns are identical)
-说明.md                     maintenance notes: design decisions and the traps hit along the way
+NOTES.md                    maintenance notes: design decisions and the traps hit along the way
 ```
 
 Both platforms share the same shape parameters and behavioural logic; fifteen
@@ -260,7 +275,7 @@ is very easily overstated:
 | The **opening characters** of user messages | Recognising `[Request interrupted` (Esc) and `<task-notification` (background task finished) | No |
 
 That last row deserves to be spelt out: the parser **does read the text of your
-messages into memory** — [Activity.swift](源码/Activity.swift) assembles it into
+messages into memory** — [Activity.swift](src/Activity.swift) assembles it into
 a string in order to test its prefix. It is not displayed, not retained and not
 sent anywhere, but saying the app "never touches your messages" would not be accurate.
 
@@ -299,7 +314,7 @@ writes nothing, and consumes no allowance.
 One point does need stating plainly, though: **the fallback sign-in requests
 broader permissions than reading usage requires.** The scope is
 `org:create_api_key user:profile user:inference`
-([Auth.swift:14](源码/Auth.swift#L14)) — Claude Code's own set, carried over
+([Auth.swift:14](src/Auth.swift#L14)) — Claude Code's own set, carried over
 verbatim rather than pared down to what this app needs. Sundial uses it solely to
 call the usage endpoint, but **the scope you approve on the authorisation page is
 genuinely wider than that**. If that bothers you, do not take this route; reusing
@@ -324,7 +339,7 @@ transcript files, depends on no endpoint, and needs no account.
   remains a notch behind the macOS build.
 - The icon does not follow the system light/dark setting — the traditional macOS
   `.icns` format cannot express that. A dark version lives at
-  `源码/Sundial-dark.icns`; run `./图标/生成图标.sh dark` to switch.
+  `src/Sundial-dark.icns`; run `./icon/make-icons.sh dark` to switch.
 - **Not yet verified on real hardware:** Intel Macs, macOS 13/14/15, VoiceOver
   actually speaking the interface, and on Windows the tray menu, launch at login
   and acrylic blur. The Windows sign-in flow *has* been verified on real hardware.

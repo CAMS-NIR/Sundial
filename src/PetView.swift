@@ -110,7 +110,7 @@ final class PetView: NSView {
     /// 呼吸相位单独累积。醒着和睡着的呼吸频率不同，直接改 sin 的频率
     /// 会在切换那一帧跳相，看着像抽了一下
     private var breathPhase: CGFloat = 0
-    /// 只读，给 docs/生成演示GIF.swift 对齐无缝循环用。
+    /// 只读，给 docs/make-demo.swift 对齐无缝循环用。
     /// 其余振荡（zzz、两侧仪表拉扯）都是绝对时间的函数，外部能自己算；
     /// 唯独呼吸是累积量——醒着 1.6、睡着 1.0、中间还有过渡段，推算不出来
     var breathPhaseSnapshot: CGFloat { breathPhase }

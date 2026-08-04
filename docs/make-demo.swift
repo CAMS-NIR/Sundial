@@ -3,8 +3,8 @@
 //
 // 文件名必须是 main.swift 才允许顶层语句，所以先复制一份：
 //
-//   cp docs/生成演示GIF.swift /tmp/main.swift && cd /tmp
-//   swiftc -O main.swift <仓库>/源码/{PetView,Theme,Model,Activity,Usage,Auth}.swift -o gifgen
+//   cp docs/make-demo.swift /tmp/main.swift && cd /tmp
+//   swiftc -O main.swift <仓库>/src/{PetView,Theme,Model,Activity,Usage,Auth}.swift -o gifgen
 //   ./gifgen demo.gif             # 浅色 GIF
 //   ./gifgen demo-dark.gif dark   # 深色 GIF
 //   ./gifgen 竖屏.mp4              # 竖屏视频（1080×1920，60fps）
@@ -110,6 +110,33 @@ final class Scene {
         view.mouseOverride = demoMouse(t)
         view.advance(dt)
         t += dt
+        retimeToAnimationClock()
+    }
+
+    /// 把所有「按真实时钟算的显示时间」重新锚到动画时钟上。
+    ///
+    /// 界面上「已跑 1 分 35 秒」「刚刚更新」这些字，是用 Date() 减去 since /
+    /// lastFetch 算出来的。渲染一条片子要几十秒真实时间，于是同一个动画时刻
+    /// 在两次渲染里落在不同的真实时间上，秒数就会差一格——两次渲染不可复现，
+    /// **白天版和夜间版也会在同一时刻显示不同的字**。
+    /// 剪辑时如果在这种地方卡拍点切换明暗，那行字就会跳。
+    /// 每帧重新锚定之后，显示时间只跟动画时钟走，与渲染耗时无关
+    private func retimeToAnimationClock() {
+        let now = Date()
+        model.lastFetch = now
+        // 落到「整秒 + 0.5」而不是精确值：界面是在绘制那一刻才用 Date() 去减，
+        // 而这里重新锚定与实际绘制之间隔着渲染耗时（几十毫秒且不稳定）。
+        // 锚在整秒中点，就有半秒容差，抖动不会把数值推过整秒边界
+        func mid(_ v: Double) -> Double { max(0, v).rounded(.down) + 0.5 }
+        for i in model.sessions.indices {
+            if model.sessions[i].busy {
+                model.sessions[i].since =
+                    now.addingTimeInterval(-mid(95 + Double(t - (warmT + 1.60))))
+            } else if model.sessions[i].finishedAt != nil {
+                model.sessions[i].finishedAt =
+                    now.addingTimeInterval(-mid(Double(t - (warmT + sessionEnd))))
+            }
+        }
     }
 
     /// 把桌宠单独画进位图。scale = 点到像素的倍数

@@ -7,14 +7,14 @@ obj/
 /Sundial.app/
 *.exe
 *.zip
-Windows源码/发给朋友-Windows/Sundial.exe
+src-windows/dist/Sundial.exe
 
 # 图标中间产物。Sundial.icns 只是 light/dark 里当前启用那份的副本，
 # 属于派生文件——留在库里是 351KB 的重复，而且改图标时会产生无意义的 diff。
 # build.sh 在它不存在时会回退到 Sundial-light.icns，所以新克隆也能直接构建。
-源码/图标/*.iconset/
-源码/图标/.gen
-源码/Sundial.icns
+src/icon/*.iconset/
+src/icon/.gen
+src/Sundial.icns
 
 # 备份目录
 *-备份-*/

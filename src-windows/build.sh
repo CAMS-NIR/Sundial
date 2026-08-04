@@ -1,9 +1,9 @@
 #!/bin/zsh
 # 在 Mac 上交叉打包 Windows 版 Sundial
 #
-#   ./构建.sh            打包 win-x64（Intel/AMD 64 位，绝大多数 Windows 机器）
-#   ./构建.sh arm64      打包 win-arm64（骁龙 X / Surface Pro 11 这类）
-#   ./构建.sh check      只跑验证：Core 逻辑 + 离屏渲染出 PNG
+#   ./build.sh            打包 win-x64（Intel/AMD 64 位，绝大多数 Windows 机器）
+#   ./build.sh arm64      打包 win-arm64（骁龙 X / Surface Pro 11 这类）
+#   ./build.sh check      只跑验证：Core 逻辑 + 离屏渲染出 PNG
 #
 # 需要 .NET SDK：brew install dotnet
 set -e
@@ -26,8 +26,8 @@ if [[ "$MODE" == "check" ]]; then
 fi
 
 case "$MODE" in
-  arm64) RID="win-arm64"; OUT="发给朋友-Windows-arm64" ;;
-  x64)   RID="win-x64";   OUT="发给朋友-Windows" ;;
+  arm64) RID="win-arm64"; OUT="dist-Windows-arm64" ;;
+  x64)   RID="win-x64";   OUT="dist-Windows" ;;
   *) echo "不认识的参数：$MODE（可用 x64 / arm64 / check）"; exit 1 ;;
 esac
 
@@ -42,7 +42,7 @@ dotnet publish src/Sundial.App/Sundial.App.csproj \
   -o "$OUT" | tail -2
 
 rm -f "$OUT"/*.pdb                      # 调试符号不用发出去
-cp "给朋友看的说明.txt" "$OUT/" 2>/dev/null || true
+cp INSTALL.txt "$OUT/" 2>/dev/null || true
 
 echo "✓ 产物：$PWD/$OUT/Sundial.exe（$(du -h "$OUT/Sundial.exe" | cut -f1)）"
 file "$OUT/Sundial.exe"

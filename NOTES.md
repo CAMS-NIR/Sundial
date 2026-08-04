@@ -3,8 +3,8 @@
 macOS 桌面宠物：一只小太阳，显示 Claude Code 的用量限额（和 `/usage` 同源）
 和正在运转的 Claude Code 会话。原生 Swift + AppKit，全部界面自绘，无第三方依赖。
 
-本文件是**给自己看的**。给朋友的说明在 `发给朋友/Read me.txt`，
-Windows 版在 `Windows源码/`（另有自己的说明）。
+本文件是**维护笔记**。面向使用者的安装说明在 `dist/INSTALL.txt`，
+Windows 版在 `src-windows/`（另有自己的说明）。
 
 ---
 
@@ -99,9 +99,9 @@ Windows 版在 `Windows源码/`（另有自己的说明）。
 
 ---
 
-## 三、源码结构
+## 三、src结构
 
-`源码/` 下 7 个 Swift 文件，共约 3200 行。
+`src/` 下 7 个 Swift 文件，共约 3200 行。
 
 | 文件 | 行数 | 内容 |
 |---|---|---|
@@ -114,7 +114,7 @@ Windows 版在 `Windows源码/`（另有自己的说明）。
 | `PetView.swift` | 1023 | 全部绘制与动画状态（太阳、仪表、会话块、悬停详情、无障碍元素树） |
 | `App.swift` | 723 | 窗口、Liquid Glass、菜单、登录流程、能耗与无障碍开关 |
 
-`源码/图标/` 是独立的图标生成器（`生成图标.sh` + `main.swift`），
+`src/icon/` 是独立的图标生成器（`make-icons.sh` + `main.swift`），
 几何照抄 `drawPet` 的太阳部分，改了太阳造型要手动重跑。
 
 ### 关键常量（改之前先看第五节）
@@ -143,15 +143,15 @@ PetView.rayPullCap   = 18     // 两股力叠加后的封顶
 ## 四、构建与发布
 
 ```bash
-~/Desktop/Sundial/源码/build.sh            # 调试：仅本机架构 + ad-hoc 签名 → 桌面 Sundial.app
-~/Desktop/Sundial/源码/build.sh share      # 分发（无开发者帐号）：通用二进制 + ad-hoc → 发给朋友/Sundial.zip
-~/Desktop/Sundial/源码/build.sh release    # 分发（有开发者帐号）：通用二进制 + Developer ID + 公证 + 钉票据
+~/Desktop/Sundial/src/build.sh            # 调试：仅本机架构 + ad-hoc 签名 → 桌面 Sundial.app
+~/Desktop/Sundial/src/build.sh share      # 分发（无开发者帐号）：通用二进制 + ad-hoc → dist/Sundial.zip
+~/Desktop/Sundial/src/build.sh release    # 分发（有开发者帐号）：通用二进制 + Developer ID + 公证 + 钉票据
 ```
 
 脚本自动收集所有 `.swift`（`main.swift` 排最后）。最低 macOS 13.0。
 
-**当前 `发给朋友/Sundial.zip` 是 `share` 模式产物**：通用二进制、ad-hoc 签名、**未公证**，
-所以 `发给朋友/Read me.txt` 里写了去隔离的步骤。哪天换成 `release`，记得把那段删掉。
+**当前 `dist/Sundial.zip` 是 `share` 模式产物**：通用二进制、ad-hoc 签名、**未公证**，
+所以 `dist/INSTALL.txt` 里写了去隔离的步骤。哪天换成 `release`，记得把那段删掉。
 
 `release` 需要一次性准备：Xcode › Settings › Accounts › Manage Certificates › **+** ›
 Developer ID Application；再存公证凭据
@@ -389,7 +389,7 @@ WWDC25 session 310 要求把内容放进 `contentView` 由 AppKit 代做可读�
   资源目录那条路走不通：`actool` 会零报错地收下深色变体，
   但编出来的 `Assets.car` 里根本没有它们（mac idiom 的 appiconset 不支持明暗变体，
   那是 iOS 的机制，`assetutil` 可验证）。所以做成手动切换：
-  `图标/生成图标.sh dark` 换一次，再跑 `build.sh`。
+  `icon/make-icons.sh dark` 换一次，再跑 `build.sh`。
 
 ---
 
@@ -463,12 +463,12 @@ Windows 侧托盘**左键**改成 `BringToFront()`（只把窗口调到前面）
 
 ### 仍未验证
 
-- `发给朋友/Sundial.zip` 是 ad-hoc 签名的 `share` 产物，**未公证**
+- `dist/Sundial.zip` 是 ad-hoc 签名的 `share` 产物，**未公证**
   （只有免费的 Apple Development 证书，签不了 Developer ID）。
 - macOS：VoiceOver 实际朗读、Intel 机器、macOS 13/14/15 都没有实机跑过。
 - Windows：**登录对话框已在真机验证**（照片确认：授权页、粘贴框、
   重新打开授权页都正常）。但托盘图标与右键菜单、注册表开机自启、
   Windows 11 亚克力模糊仍未逐项验证。
-- `Windows源码/tests/Sundial.Tests` 目录建了但还是空的。这一轮验证用的断言
+- `src-windows/tests/Sundial.Tests` 目录建了但还是空的。这一轮验证用的断言
   都散在临时脚本里，跑完就没了；Core 层能在 Mac 上跑测试，值得固化下来——
   否则两边同步全靠手工比对（这次就差点漏掉常量漂移）。

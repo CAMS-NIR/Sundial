@@ -1,8 +1,8 @@
 #!/bin/zsh
 # 重新生成 App 图标（改了太阳的造型才需要跑）
 #
-#   ./生成图标.sh          浅色底（默认，装进 App）
-#   ./生成图标.sh dark     深色底
+#   ./make-icons.sh          浅色底（默认，装进 App）
+#   ./make-icons.sh dark     深色底
 #
 # 说明：macOS 的传统 .icns 不会跟随系统明暗自动切换——能切换的是 macOS 26 的
 # .icon 格式，只能用 Xcode 的 Icon Composer（纯 GUI）做。资源目录那条路走不通：

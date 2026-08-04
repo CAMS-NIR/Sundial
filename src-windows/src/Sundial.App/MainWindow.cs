@@ -697,7 +697,7 @@ public sealed class MainWindow : Window
         Func<bool>? Enabled = null,
         Func<string>? DynamicText = null);
 
-    /// <summary>程序集版本，由 构建.sh 从仓库根的 VERSION 文件传进来（-p:Version）。
+    /// <summary>程序集版本，由 build.sh 从仓库根的 VERSION 文件传进来（-p:Version）。
     /// 与 macOS 版共用同一个来源。</summary>
     private static string AppVersion =>
         System.Reflection.Assembly.GetExecutingAssembly().GetName().Version is { } v
@@ -705,7 +705,7 @@ public sealed class MainWindow : Window
 
     private List<MenuEntry> BuildMenuEntries() => new()
     {
-        // 版本号放在菜单最上面：朋友报问题时，第一句话就能问「菜单里写的多少」
+        // 版本号放在菜单最上面：有人报问题时，第一句话就能问「菜单里写的多少」
         new MenuEntry($"Sundial {AppVersion}", Enabled: () => false),
         new MenuEntry("", IsSeparator: true),
         new MenuEntry("登录 Claude 账号…", StartLogin,

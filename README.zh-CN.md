@@ -10,6 +10,8 @@ macOS 与 Windows 双平台。
 
 > **非官方的个人项目，与 Anthropic 没有任何关系，也没有得到它的认可或支持。**
 > 用量那半边依赖一个未公开接口，随时可能失效；详见下方[风险声明](#-请先读这一段)。
+>
+> 由 Claude Code 编写，人工审阅与测试。
 
 <p align="center">
   <img src="docs/demo.gif" width="380"
@@ -21,6 +23,15 @@ macOS 与 Windows 双平台。
 <p align="center"><sub>
 左：白天模式　右：夜间模式（跟随系统自动切换）<br>
 打盹 → 悬停展开 → 会话开始 → 鼠标靠近时光芒被吸过去 → 无人打扰时被两侧仪表一吸一斥地拽着呼吸 → 跑完未读 → 收起
+</sub></p>
+
+<p align="center">
+  <img src="docs/demo-dodge.gif" width="380" alt="白天模式，没有会话在跑：睡着的太阳把光芒从靠近的光标那侧缩回去，身子往后躲">
+  <img src="docs/demo-dodge-dark.gif" width="380" alt="夜间模式：同一段，深色配色">
+</p>
+
+<p align="center"><sub>
+没有会话在跑时引力是反的：睡着的太阳<em>躲开</em>光标，而不是凑过去——近侧的光芒缩回，远侧鼓出。
 </sub></p>
 
 ---
@@ -161,20 +172,20 @@ xattr -dr com.apple.quarantine /Applications/Sundial.app
 
 ```bash
 # macOS（需要 Xcode 命令行工具）
-cd 源码
+cd src
 ./build.sh              # 本机调试，装到桌面
-./build.sh share        # 通用二进制（Intel + Apple 芯片），打包到 发给朋友/
+./build.sh share        # 通用二进制（Intel + Apple 芯片），打包到 dist/
 ./build.sh release      # 需要 Developer ID 证书，含公证
 
 # 图标（改了太阳造型才需要重跑）
-./图标/生成图标.sh          # 浅色底
-./图标/生成图标.sh dark     # 深色底
+./icon/make-icons.sh          # 浅色底
+./icon/make-icons.sh dark     # 深色底
 
 # Windows 版（在 macOS 上交叉编译，需要 .NET 10 SDK：brew install dotnet）
-cd Windows源码
-./构建.sh x64           # win-x64
-./构建.sh arm64         # win-arm64（骁龙 X 这类）
-./构建.sh check         # 只跑验证：Core 逻辑 + 离屏渲染出 PNG
+cd src-windows
+./build.sh x64           # win-x64
+./build.sh arm64         # win-arm64（骁龙 X 这类）
+./build.sh check         # 只跑验证：Core 逻辑 + 离屏渲染出 PNG
 ```
 
 版本号的唯一来源是仓库根的 `VERSION` 文件，两个构建脚本都从它读。
@@ -185,23 +196,23 @@ cd Windows源码
 
 ```
 VERSION                     版本号唯一来源
-源码/                       macOS 版（Swift + AppKit）
+src/                       macOS 版（Swift + AppKit）
   ├ PetView.swift           全部绘制与动画状态
   ├ App.swift               窗口、菜单、托盘、能耗、无障碍
   ├ Activity.swift          读 Claude Code 会话记录
   ├ Usage.swift             用量接口解析与取数调度
   ├ Auth.swift              OAuth PKCE 与令牌存储
   ├ Model.swift / Theme.swift
-  └ 图标/                   图标生成器
-Windows源码/                Windows 版（C# + Avalonia）
+  └ icon/                   图标生成器
+src-windows/                Windows 版（C# + Avalonia）
   ├ src/Sundial.Core/       纯逻辑，不依赖 UI —— 可在 macOS 上跑测试
   ├ src/Sundial.App/        Avalonia 界面
   └ tests/
      ├ LiveCheck/           拿本机真实记录跑 Core 层
      └ RenderCheck/         离屏渲染成 PNG，与 macOS 版逐帧比对
 docs/                       README 用图
-  └ 生成演示GIF.swift        离屏逐帧渲染演示 GIF（不是录屏，重跑结果一致）
-说明.md                     维护说明：设计决定与踩过的坑
+  └ make-demo.swift        离屏逐帧渲染演示 GIF（不是录屏，重跑结果一致）
+NOTES.md                     维护说明：设计决定与踩过的坑
 ```
 
 两个平台共用同一套造型参数与行为逻辑，15 项关键常量逐个比对保持一致。
@@ -221,7 +232,7 @@ docs/                       README 用图
 | 用户消息正文的**开头** | 认出 `[Request interrupted`（Esc 中断）和 `<task-notification`（后台任务完成）这两种标记 | 否 |
 
 最后一条要说清楚：解析器**确实会把用户消息的正文读进内存**
-（[Activity.swift](源码/Activity.swift) 里拼成字符串后做前缀判断），
+（[Activity.swift](src/Activity.swift) 里拼成字符串后做前缀判断），
 只是不显示、不留存、不外发。说「完全不碰正文」是不准确的。
 
 另外，**会话标题会显示在桌面上**——如果你的标题里带着敏感内容，
@@ -252,7 +263,7 @@ docs/                       README 用图
 
 但有一点必须说明：**自己登录那条路申请的权限比「读用量」需要的多**。
 scope 是 `org:create_api_key user:profile user:inference`
-（[Auth.swift:14](源码/Auth.swift#L14)）——这是 Claude Code 自己的那套，
+（[Auth.swift:14](src/Auth.swift#L14)）——这是 Claude Code 自己的那套，
 直接照搬过来的，不是按本 App 的需要裁剪的。Sundial 只用它调用量接口，
 但**授权页上你批准的范围确实更大**。介意的话就别走这条，
 沿用已有凭证那条不发起任何授权请求。
@@ -272,7 +283,7 @@ scope 是 `org:create_api_key user:profile user:inference`
   亚克力只认整块方形窗口，而这只桌宠形状每帧都在变，
   开了反而会在圆角外露出方底。菜单里有实验开关，观感仍比 macOS 版弱一档
 - 图标不随系统明暗自动切换（macOS 的传统 `.icns` 没有这个能力）。
-  深色版在 `源码/Sundial-dark.icns`，跑 `./图标/生成图标.sh dark` 可切换
+  深色版在 `src/Sundial-dark.icns`，跑 `./icon/make-icons.sh dark` 可切换
 - **未在真机验证过**：Intel Mac、macOS 13/14/15、VoiceOver 实际朗读；
   Windows 的托盘菜单、开机自启、亚克力模糊
   （Windows 的登录流程已在真机验证）
