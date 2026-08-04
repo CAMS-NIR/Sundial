@@ -1,27 +1,29 @@
-# 构建产物
+# Build products
 .build/
 bin/
 obj/
-# 注意：不能写 *.app/ —— macOS 上 git 大小写不敏感，那会把
-# Windows 侧的 Sundial.App/（整个界面层）一起排除掉
+# Note: do not write *.app/ here — git is case-insensitive on macOS, so that would also
+# exclude the Windows side's Sundial.App/ (the entire UI layer)
 /Sundial.app/
 *.exe
 *.zip
 src-windows/dist/Sundial.exe
 
-# 图标中间产物。Sundial.icns 只是 light/dark 里当前启用那份的副本，
-# 属于派生文件——留在库里是 351KB 的重复，而且改图标时会产生无意义的 diff。
-# build.sh 在它不存在时会回退到 Sundial-light.icns，所以新克隆也能直接构建。
+# Intermediate icon products. Sundial.icns is just a copy of whichever of light/dark is
+# currently enabled, which makes it a derived file — keeping it in the repo means 351KB of
+# duplication, and it produces meaningless diffs whenever the icon changes.
+# build.sh falls back to Sundial-light.icns when it does not exist, so a fresh clone can
+# still be built straight away.
 src/icon/*.iconset/
 src/icon/.gen
 src/Sundial.icns
 
-# 备份目录
+# Backup directories
 *-备份-*/
 
 # macOS
 .DS_Store
 
-# 你自己的视频工作目录，不进仓库
+# Your own video working directory; it does not go into the repo
 视频/
 *.mp4

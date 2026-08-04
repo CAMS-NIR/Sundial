@@ -1,116 +1,138 @@
-Sundial（Windows 版）
-====================
+Sundial (Windows)
+=================
 
-桌面上的一只小太阳，显示正在跑的 Claude Code 会话
-（在做什么、跑了多久、上下文用了多少），
-以及——如果你有 Claude Max / Pro 订阅——用量还剩多少。
+A small sun on your desktop, showing the Claude Code sessions you have running
+(what each is doing, how long it has been going, how much context is used) and
+— if you have a Claude Max or Pro subscription — how much of your usage
+allowance is left.
 
-※ 这是一个非官方的个人项目，与 Anthropic 没有任何关系，也没有得到它的
-  认可或支持。用量那半边依赖一个未公开接口，随时可能失效。
-
-
-先说清楚：不登录也能用
-----------------------
-这个程序的两半是分开的：
-
-· 会话状态、上下文占用 —— 读你自己电脑上的本地文件，
-  不需要账号、不需要订阅，打开就能看。
-
-· 两个用量圈 —— 需要 Claude Max 或 Pro 订阅。
-  没有订阅的话，Claude 的授权页会直接写「连接 Claude Code 需要
-  Claude Max 或 Pro」并拒绝连接。登不上去是正常的，不是程序坏了。
-
-所以：**没订阅就跳过第 3 步**，太阳和会话块照样工作，只是没有那两个圈。
-
-（授权页上写的「或使用 API 密钥」对这一半没用——那是另一套计费方式，
- 没有"订阅用量"这个数可显示。）
+* An unofficial personal project. Not affiliated with Anthropic, and neither
+  endorsed nor supported by them. The usage half relies on an undocumented
+  endpoint and may stop working at any time.
 
 
-怎么用
-------
-1. 双击 Sundial.exe。没有安装过程，也不会往系统里写东西。
-2. 第一次打开 Windows 可能会弹「已保护你的电脑」的蓝色窗口——
-   这是因为这个程序没有花钱买微软的代码签名证书，不是有问题。
-   点「更多信息」→「仍要运行」即可。
-3. 大多数人这一步可以跳过。如果你的 Claude Code 是命令行版并且已经登录过，
-   Sundial 会直接沿用它存好的凭证，打开就有两个圈，什么都不用做。
+First, the important part: you do not have to sign in
+-----------------------------------------------------
+The program has two halves, and they are independent:
 
-   只有借不到凭证（最常见是你用的是 Claude Code 桌面版，它把登录信息
-   存在别处）、而且你有 Max/Pro 时，才需要自己登录一次：
-   双击太阳，或在它身上点右键 →「登录 Claude 账号…」。
-   会打开浏览器让你登录并授权，然后把页面上给的那串码粘回来。
-   注意：浏览器里如果还留着以前的授权页标签，从旧页面复制的码是无效的。
-4. 之后它就一直待在桌面上。按住太阳可以拖到你喜欢的位置，
-   鼠标移上去会展开详情，移开自动收起。
+· Session state and context consumption — read from local files on your own
+  machine. No account, no subscription; it works as soon as you open it.
 
+· The two usage dials — these need a Claude Max or Pro subscription. Without
+  one, Claude's authorisation page states that connecting Claude Code requires
+  Max or Pro, and refuses. That is expected, not a fault in the program.
 
-它显示什么
-----------
-闲着的时候，桌面上只有一颗太阳，没有卡片也没有底——
-没有事情发生的时候不占地方。鼠标移上去就会展开。
+So: with no subscription, skip step 3 below. The sun and the session blocks
+work as normal; you simply will not have the two dials.
 
-· 下面每有一个正在跑的 Claude Code 会话就是一块，写着标题、
-  正在做什么、跑了多久、上下文用了多少。
-  抛出选项等你选的那一条会排到最上面。
-  点一下就能把「跑完了还没看」的提示消掉。
-· 有订阅的话，太阳左右各一个圈：
-  左边（蜜金色）= 5 小时限额；
-  右边（杏粉色）= 用得最紧的那条每周限额（标签可能是「每周」，
-  也可能是某个模型名——哪条最紧就显示哪条）。
-· 中间的太阳 = 心情跟着用量走：轻松时咧嘴笑，用了一半抿着嘴，
-  快用满了会皱眉、身体发红。
-  它还会往用得紧的那一侧探出光芒来回摆动，尖上亮起那一侧的颜色，
-  越满越亮——所以收起来只剩一颗太阳时，扫一眼也知道哪边紧张。
-· 太阳灰扑扑地睡觉、冒 zzz，意思是现在没有会话在跑，不是坏了。
-
-会话块里那个百分比是**上下文窗口**用了多少。条子变深红就说明快满了，
-该考虑新开一个会话。这个数不需要订阅也能看。
+(The "or use an API key" option on that page does not help here. It is a
+ separate billing arrangement, with no subscription-allowance figure to show.)
 
 
-操作
-----
-拖动          = 移动位置（放哪儿它记得住）
-双击          = 没登录时开始登录；登录了就是立刻刷新一次
-鼠标移上去    = 展开明细，移开自动收起
-右键          = 菜单
-托盘图标左键  = 把窗口调到最前面（不会挪动它的位置）
+Getting started
+---------------
+1. Double-click Sundial.exe. There is no installer, and nothing is written
+   into the system.
+2. The first time you open it, Windows may show the blue "Windows protected
+   your PC" dialogue. That is because the executable is not signed with a
+   (paid) Microsoft code-signing certificate — it does not indicate a problem.
+   Choose "More info" then "Run anyway".
+3. Most people can skip this step. If your Claude Code is the command-line
+   version and you have already signed in there, Sundial reuses the
+   credentials it has stored: the two dials are simply there, with nothing
+   for you to do.
 
-右键菜单：
-  登录 / 重新登录 Claude 账号…
-  退出登录
-  立即刷新
-  固定展开用量明细
-  打开网页版用量
-  把桌宠移回屏幕右下角     ← 桌宠跑丢时用这个
-  系统模糊背景（实验）
-  开机自动启动
-  退出 Sundial
+   You only need to sign in yourself when that fails — most commonly because
+   you use the Claude Code desktop app, which keeps its sign-in elsewhere —
+   and you do have Max/Pro. In that case: double-click the sun, or right-click
+   it and choose "sign in to Claude account". Your browser opens for you to
+   sign in and approve, and you paste the code it gives you back into the app.
+   Note that a code copied from an older authorisation tab will not work.
+4. After that it just stays on your desktop. Hold and drag the sun to wherever
+   you want it; hover to expand the detail, move away and it folds up again.
 
 
-说明与已知情况
---------------
-· 需要 Windows 10 或 11（64 位）。程序自带运行时，不用另外装 .NET。
-· 只支持**原生 Windows 上的 Claude Code**。如果你的 Claude Code 跑在 WSL 里，
-  会话记录在 Linux 子系统的文件系统内，这个版本读不到。
-· 卡片底默认是自己画的半透明圆角底，不是系统模糊。
-  原因是 Windows 的亚克力模糊只认整块方形窗口，而这只桌宠收起来是个圆、
-  展开是圆角卡片，形状每帧都在变，开了系统模糊反而会在圆角外露出一圈方形的底。
-  想试的话右键菜单里有「系统模糊背景（实验）」，Windows 11 上才有效果。
-  总之这一块的观感比 macOS 版弱一档。
-· 登录令牌用 Windows 自带的 DPAPI 加密，存在 %LOCALAPPDATA%\Sundial\ 下，
-  只有你自己的账户能解开。
-· 窗口位置和菜单里那几个开关记在 %APPDATA%\Sundial\shell.json，重启后回到原处。
-· 它会读取 %USERPROFILE%\.claude 下的 Claude Code 会话记录，具体读这些：
-  记录类型、时间戳、忙/闲标记、token 计数、会话标题，以及用户消息正文的
-  开头——用来认出「Esc 中断」和「后台任务完成」这两种标记。
-  也就是说正文确实会被读进内存做前缀判断，只是不显示、不留存、不外发。
-  说「完全不碰正文」不准确，所以这里说清楚。
-  会话标题是会显示在桌面上的，截图投屏时它可见。
-· 除了取用量的那一次请求（只有订阅用户才会发生），不往外发任何东西，
-  没有统计也没有崩溃收集。
-· 有会话在跑的时候会持续占一些 CPU（满帧自绘 + 定时读盘）；
-  没会话时降到低帧率。macOS 版在显示器休眠时会完全停下，
-  Windows 版目前做不到这一点，是已知差距。
+What it shows
+-------------
+When nothing is happening there is just a sun on your desktop — no card, no
+backing. It takes up no room when it has nothing to say. Hover to expand.
 
-卸载：直接删掉 Sundial.exe，再删 %LOCALAPPDATA%\Sundial 和 %APPDATA%\Sundial
-这两个文件夹即可。如果开过「开机自动启动」，先在右键菜单里关掉再删。
+· Below, one block per running Claude Code session: title, what it is doing,
+  how long it has been running, how much context is used. A session waiting
+  for you to choose something jumps to the top. Click a block to dismiss its
+  "finished but unread" marker.
+· With a subscription, a ring on either side of the sun:
+  left (honey gold) is the five-hour allowance; right (apricot pink) is
+  whichever weekly allowance is under the most pressure — the label may read
+  "weekly" or the name of one particular model, whichever is tightest.
+· The sun itself follows usage: a broad grin when there is room, a flat line
+  around halfway, a frown and a reddened body as the limit approaches.
+  It also reaches its rays towards whichever side is tightest, swaying back
+  and forth, with the tips glowing in that side's colour and growing brighter
+  the fuller it gets — so even folded down to a single sun, one glance tells
+  you which side is under pressure.
+· A grey sun with closed eyes and a few z's means no session is running.
+  That is idle, not broken.
+
+The percentage inside a session block is how much of the CONTEXT WINDOW is
+used. When the bar turns deep red it is nearly full, and worth starting a
+fresh session. That figure needs no subscription.
+
+
+Controls
+--------
+Drag              move it (the position is remembered)
+Double-click      starts sign-in if not signed in; otherwise refreshes now
+Hover             expands the detail; moving away folds it up
+Right-click       menu
+Tray icon, left   brings the window to the front (without moving it)
+
+Right-click menu:
+  Sign in / sign in again to Claude account
+  Sign out
+  Refresh now
+  Keep the usage breakdown open
+  Open the web usage page
+  Bring the pet back to the bottom-right     <- use this if it goes missing
+  System blur background (experimental)
+  Launch at login
+  Quit Sundial
+
+
+Notes and known limitations
+---------------------------
+· Requires Windows 10 or 11 (64-bit). The runtime is bundled; there is no
+  need to install .NET separately.
+· Only Claude Code installed NATIVELY on Windows is supported. If your Claude
+  Code runs inside WSL, its transcripts live in the Linux subsystem's file
+  system and this build cannot read them.
+· The card is a hand-drawn translucent panel by default, not system blur.
+  Windows acrylic applies only to a whole rectangular window, whereas this pet
+  is a circle when folded and a rounded card when expanded — its shape changes
+  every frame, so enabling acrylic exposes a rectangular backing outside the
+  rounded corners. There is a "system blur background (experimental)" item in
+  the right-click menu if you want to try it; it only has an effect on
+  Windows 11. Either way, this aspect looks a notch behind the macOS build.
+· The sign-in token is encrypted with Windows' own DPAPI and stored under
+  %LOCALAPPDATA%\Sundial\, so only your account can read it.
+· The window position and the menu toggles are kept in
+  %APPDATA%\Sundial\shell.json, so they survive a restart.
+· It reads the Claude Code transcripts under %USERPROFILE%\.claude, and
+  specifically: record types, timestamps, busy/idle markers, token counts,
+  session titles, and the opening characters of your messages — the last of
+  these to recognise the "interrupted with Esc" and "background task finished"
+  markers. So the text of your messages is read into memory in order to test
+  its prefix. It is not displayed, not retained and not sent anywhere, but
+  saying it "never touches your messages" would not be accurate, which is why
+  it is spelt out here. Note also that session titles are shown on your
+  desktop, so they are visible in screenshots and while screen-sharing.
+· Apart from the one request that fetches usage (which only happens for
+  subscribers), nothing is sent anywhere. No analytics, no crash reporting.
+· While a session is running it uses CPU continuously (full-frame custom
+  drawing plus periodic disk reads); with nothing running it drops to a low
+  frame rate. The macOS build stops entirely when the display sleeps; this
+  build does not yet manage that, which is a known gap.
+
+To uninstall: delete Sundial.exe, then the %LOCALAPPDATA%\Sundial and
+%APPDATA%\Sundial folders. If you enabled "launch at login", switch that off
+in the right-click menu first.

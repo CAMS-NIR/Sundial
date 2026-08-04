@@ -1,157 +1,187 @@
-Sundial — Claude Code 桌宠
-==========================
+Sundial — a desktop pet for Claude Code
+=======================================
 
-一只停在桌面上的小太阳，显示正在跑的 Claude Code 会话
-（在想什么、想了多久、上下文用了多少），
-以及——如果你有 Claude Max / Pro 订阅——用量还剩多少。
+A small sun that sits on your desktop, showing the Claude Code sessions you
+have running (what each is doing, how long the current turn has taken, how
+much of the context window is used) and — if you have a Claude Max or Pro
+subscription — how much of your usage allowance is left.
 
-※ 这是一个非官方的个人项目，与 Anthropic 没有任何关系，也没有得到它的
-  认可或支持。用量那半边依赖一个未公开接口，随时可能失效。
+* An unofficial personal project. Not affiliated with Anthropic, and neither
+  endorsed nor supported by them. The usage half relies on an undocumented
+  endpoint and may stop working at any time.
 
-需要 macOS 13 或更新的版本，Intel 和 Apple 芯片都能跑。
-
-
-先说清楚：不登录也能用
-----------------------
-
-这个 App 的两半是分开的：
-
-  · 会话状态、上下文占用 —— 读你自己电脑上的本地文件，
-    不需要账号、不需要订阅，装上就能看。
-
-  · 两个用量圈 —— 需要 Claude Max 或 Pro 订阅。
-    没有订阅的话，Claude 的授权页会直接拒绝连接，登不上去是正常的，
-    不是这个 App 坏了。
-
-所以：**没订阅就跳过登录那一步**，太阳和会话块照样正常工作，
-只是没有那两个圈。
-
-（授权页上写的「或使用 API 密钥」对这一半没用——那是另一套计费方式，
- 没有"订阅用量"这个数可显示。）
+Requires macOS 13 or later. Runs on both Intel and Apple silicon.
 
 
-第一次打开（重要）
-------------------
+First, the important part: you do not have to sign in
+-----------------------------------------------------
 
-这个 App 没有经过 Apple 公证，所以系统第一次会拦一下。二选一：
+The app has two halves, and they are independent:
 
-【方法一 · 最省事】
-把 Sundial.app 拖到「应用程序」文件夹，然后打开「终端」，粘贴这行回车：
+  · Session state and context consumption — read from local files on your own
+    machine. No account, no subscription. It works the moment you install it.
+
+  · The two usage dials — these need a Claude Max or Pro subscription.
+    Without one, Claude's authorisation page simply refuses to connect. That
+    is expected behaviour, not a fault in this app.
+
+So: if you have no subscription, skip the sign-in step entirely. The sun and
+the session blocks carry on working; you just will not have the two dials.
+
+(The "or use an API key" option on that page does not help here. It is a
+ separate billing arrangement, with no subscription-allowance figure to show.)
+
+
+Opening it for the first time (please read)
+-------------------------------------------
+
+The app has not been notarised by Apple, so Gatekeeper will stop it the first
+time. Either of these will do:
+
+[Option one — least fuss]
+Drag Sundial.app into your Applications folder, then open Terminal and paste
+this line:
 
     xattr -dr com.apple.quarantine /Applications/Sundial.app
 
-之后双击就能正常打开，只需做这一次。
+After that it opens normally. You only ever need to do this once.
 
-【方法二】
-双击打开，系统会拦住并提示「无法打开」。
-去「系统设置 › 隐私与安全性」，往下滚，会看到一行关于 Sundial 的提示，
-点「仍要打开」。
-
-
-大多数人不用登录
-----------------
-
-如果你的 Claude Code 是命令行版（终端里敲 claude 的那种），而且已经登录过，
-那么 Sundial 会直接沿用它已经存好的凭证——**打开就有两个圈，不用做任何事**。
-
-只有借不到的时候才需要下面那一节。最常见的情况是你用的是 Claude Code
-桌面版，它把登录信息存在别处，Sundial 读不到。
+[Option two — no terminal]
+Double-click it and let macOS block it. Then open System Settings › Privacy &
+Security, scroll down to the notice about Sundial, and choose "Open Anyway".
 
 
-怎么登录（借不到凭证、且有 Max/Pro 时才需要）
----------------------------------------------
+Most people never sign in
+-------------------------
 
-1. 打开后，桌面右下角会出现一只灰扑扑、正在打盹的小太阳。
-   没有会话在跑、也还没登录时，底下会有一张小卡片和「双击登录」按钮。
-2. 双击太阳（或点那个按钮）→ 浏览器会打开 Claude 的授权页面。
-3. 在浏览器里登录你自己的 Claude 账号，点授权。
-4. 页面会给出一段授权码，复制它，粘贴回小太阳弹出的输入框，点「完成登录」。
-5. 之后它会自己刷新，不用再管；登录也只做这一次。
+If your Claude Code is the command-line one (the `claude` command in a
+terminal) and you have already signed in there, Sundial simply reuses the
+credentials it has stored — the two dials are there on first launch, with
+nothing for you to do.
 
-   ⚠️ 如果授权页写着「连接 Claude Code 需要 Claude Max 或 Pro」，
-      那就是这个账号没有订阅——登不上去，跳过即可，会话那半边照常用。
-
-   ⚠️ 有订阅却登不上，最常见的原因是浏览器里还留着以前的授权页标签，
-      从旧页面复制了码。把这类旧标签全部关掉，重新点一次登录，
-      只用刚打开的那一页上的码。每个授权码只能用一次，放太久也会失效。
+The next section only matters when that fails. The usual reason is that you
+are using the Claude Code desktop app, which keeps its sign-in somewhere
+Sundial cannot read.
 
 
-你会看到什么
-------------
+How to sign in (only if the above failed, and you have Max/Pro)
+---------------------------------------------------------------
 
-闲着的时候，桌面上只有一颗太阳，没有卡片也没有底——
-这是正常的，没有事情发生的时候不占地方。鼠标移上去就会展开。
+1. On launch, a small grey sun appears in the bottom-right of your screen,
+   dozing. With no session running and no sign-in yet, a small card appears
+   beneath it with a "sign in" button.
+2. Double-click the sun (or press that button). Your browser opens Claude's
+   authorisation page.
+3. Sign in to your own Claude account there and approve the request.
+4. The page gives you an authorisation code. Copy it, paste it into the box
+   that appeared under the sun, and confirm.
+5. From then on it refreshes by itself. Signing in is a one-off.
 
-展开以后：太阳在中间，有订阅的话左右各一个圈。
+   ! If the authorisation page says connecting Claude Code requires Claude Max
+     or Pro, that account has no subscription. Signing in is not possible;
+     skip it, and the session half carries on as normal.
 
-  · 左边的圈（蜜金色）= 5 小时限额用了多少
-  · 右边的圈（杏粉色）= 用得最紧的那条每周限额。
-    标签可能写「每周」，也可能写某个模型的名字——哪条最紧就显示哪条。
-  · 中间的太阳：心情跟着用量走。轻松时咧嘴笑，用了一半抿着嘴，
-    快用满了会皱眉、身体发红。
-    它还会往用得紧的那一侧探出光芒来回摆动，尖上亮起那一侧的颜色，
-    越满越亮——所以收起来只剩一颗太阳时，扫一眼也知道哪边紧张。
-  · 下面每有一个正在跑的 Claude Code 会话就是一块，写着标题、
-    正在做什么、已经跑了多久、上下文用了多少。
-    抛出选项等你选的那一条会排到最上面。
-  · 鼠标停一会儿，最下面会展开明细。
-
-太阳灰扑扑地睡觉、冒 zzz，意思是现在没有会话在跑，不是坏了。
+   ! If you do have a subscription but sign-in keeps failing, the usual cause
+     is an old authorisation tab still open in your browser, and a code copied
+     from that stale page. Close all of them, start the sign-in again, and use
+     only the code from the page that has just opened. Each code works once,
+     and expires if left too long.
 
 
-怎么操作
+What you will see
+-----------------
+
+When nothing is happening there is just a sun on your desktop — no card, no
+backing. That is deliberate: it takes up no room when it has nothing to say.
+Hover over it and it expands.
+
+Expanded, the sun sits in the middle with a ring on either side (subscribers
+only):
+
+  · Left ring (honey gold) — how much of the five-hour allowance is used.
+  · Right ring (apricot pink) — whichever weekly allowance is under the most
+    pressure. The label may read "weekly", or the name of one particular
+    model; whichever is tightest is the one shown.
+  · The sun itself — its mood follows usage. A broad grin when there is room,
+    a flat line around halfway, a frown and a reddened body as the limit
+    approaches. It also reaches its rays towards whichever side is tightest,
+    swaying back and forth, with the tips glowing in that side's colour and
+    growing brighter the fuller it gets. So even folded down to a single sun,
+    one glance tells you which side is under pressure.
+  · Below, one block per running Claude Code session: title, what it is doing,
+    how long it has been running, and how much context is used. A session that
+    is waiting for you to choose something jumps to the top.
+  · Rest the pointer a moment and the full breakdown opens at the bottom.
+
+A grey sun with its eyes closed and a few z's drifting off means there is no
+session running. That is idle, not broken.
+
+
+Controls
 --------
 
-  拖动          = 移动位置（放哪儿它记得住）
-  双击          = 没登录时开始登录；登录了就是立刻刷新一次
-  点一下会话块  = 把这条「跑完了还没看」的提示消掉
-  右键          = 菜单
-  鼠标移上去    = 展开明细，移开自动收起
+  Drag            move it (the position is remembered)
+  Double-click    starts sign-in if not signed in; otherwise refreshes now
+  Click a block   dismisses its "finished but unread" marker
+  Right-click     menu
+  Hover           expands the breakdown; moving away folds it up
 
-菜单栏右上角也有一颗小太阳，**有会话在跑时它会转**。
-点它有菜单：立即刷新、登录 / 退出登录、显示用量明细、打开网页版用量、
-更通透的玻璃、始终置于其他窗口之上、登录时自动启动、
-把桌宠移回屏幕中央、退出。
+There is a small sun in the menu bar too, and it turns while a session is
+running. Its menu holds: refresh now, sign in / sign out, show usage
+breakdown, open the web usage page, clearer glass, keep above other windows,
+launch at login, bring the pet back to the centre of the screen, and quit.
 
-桌宠被拖到看不见的地方时（拔掉外接显示器之后最容易碰到），
-从菜单栏那个太阳里点「把桌宠移回屏幕中央」就能叫回来。
-
-
-需要什么
---------
-
-· 装了 Claude Code —— 会话那半边靠它，这是主要功能
-· 一个 Claude Max / Pro 订阅 —— 只有那两个圈需要，没有也能用
+If you ever drag the pet somewhere you cannot see (easiest to do after
+unplugging an external display), that last-but-one item brings it back.
 
 
-常见问题
---------
+What you need
+-------------
 
-Q：太阳一直灰着不动？
-A：说明没有检测到正在跑的 Claude Code 会话，这是正常的空闲状态。
+· Claude Code installed — the session half depends on it, and that is the
+  main feature.
+· A Claude Max / Pro subscription — only the two dials need this. The app is
+  perfectly usable without one.
 
-Q：会话块里那个百分比是什么？
-A：上下文窗口用了多少。条子变深红就说明快满了，该考虑新开一个会话。
 
-Q：一直显示「未登录」？
-A：如果没有 Max/Pro，这就是正常的，不影响会话显示。
-   有订阅的话双击太阳重新走一遍登录，注意别用旧标签页上的授权码。
+Questions
+---------
 
-Q：数字和 Claude Code 里 /usage 看到的一样吗？
-A：一样，同一个来源。每分钟自己更新一次，想立刻更新就双击。
+Q: The sun stays grey and still.
+A: No running Claude Code session was detected. That is the normal idle state.
 
-Q：它会一直占着 CPU 吗？
-A：有会话在跑的时候会，实测约占一个核的三分之一（28–37%）——
-   满帧自绘加上 0.8 秒一次的记录轮询。笔记本上会在活动监视器里
-   排得比较靠前。没会话在跑时降到低帧率，显示器一睡就完全停下来。
+Q: What is the percentage inside a session block?
+A: How much of the context window is used. When the bar turns deep red it is
+   nearly full, and worth starting a fresh session.
 
-Q：它会上传我的东西吗？
-A：除了取用量的那一次请求（只有订阅用户才会发生），不往外发任何东西，
-   没有统计也没有崩溃收集。登录令牌只存在你自己电脑上。
+Q: It keeps saying I am not signed in.
+A: Without Max/Pro that is expected, and it does not affect the session
+   display. With a subscription, double-click the sun and go through sign-in
+   again — taking care not to use a code from an old browser tab.
 
-   会话那半边读的是本地文件，具体读这些：记录类型、时间戳、token 计数、
-   会话标题，以及用户消息正文的开头——用来认出「Esc 中断」和
-   「后台任务完成」这两种标记。也就是说正文确实会被读进内存做前缀判断，
-   只是不显示、不留存、不外发。说「完全不碰正文」不准确，所以这里说清楚。
+Q: Do the figures match `/usage` inside Claude Code?
+A: Yes, same source. It refreshes itself every minute; double-click to refresh
+   immediately.
 
-   另外会话标题是会显示在桌面上的，截图投屏时它可见。
+Q: Does it sit there eating CPU?
+A: While a session is running, yes — measured at roughly a third of one core
+   (28–37%). That is full-frame custom drawing plus a transcript poll every
+   0.8 seconds. On a laptop it will sit fairly high in Activity Monitor. With
+   nothing running it drops to a low frame rate, and stops entirely when the
+   display sleeps.
+
+Q: Does it upload anything of mine?
+A: Apart from the one request that fetches usage (which only happens for
+   subscribers), nothing is sent anywhere. No analytics, no crash reporting.
+   The sign-in token stays on your own machine.
+
+   The session half reads local files, and specifically: record types,
+   timestamps, token counts, session titles, and the opening characters of
+   your messages — the last of these to recognise the "interrupted with Esc"
+   and "background task finished" markers. So the text of your messages is
+   read into memory in order to test its prefix. It is not displayed, not
+   retained and not sent anywhere, but saying the app "never touches your
+   messages" would not be accurate, which is why it is spelt out here.
+
+   Note also that session titles are shown on your desktop, so they are
+   visible in screenshots and while screen-sharing.

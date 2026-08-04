@@ -1,474 +1,609 @@
-# Sundial 维护说明
+# Sundial — maintenance notes
 
-macOS 桌面宠物：一只小太阳，显示 Claude Code 的用量限额（和 `/usage` 同源）
-和正在运转的 Claude Code 会话。原生 Swift + AppKit，全部界面自绘，无第三方依赖。
+A macOS desktop pet: a small sun showing Claude Code usage allowances (the same
+source as `/usage`) and the Claude Code sessions currently running. Native Swift
++ AppKit, every pixel drawn by hand, no third-party dependencies.
 
-本文件是**维护笔记**。面向使用者的安装说明在 `dist/INSTALL.txt`，
-Windows 版在 `src-windows/`（另有自己的说明）。
+These are **maintenance notes**. User-facing install instructions live in
+`dist/INSTALL.txt`; the Windows build is under `src-windows/` and has its own.
 
 ---
 
-## 一、现在的界面长什么样
+## 1. What the interface looks like now
 
-### 两种形态
+### Two forms
 
-| 形态 | 尺寸 | 何时出现 |
+| Form | Size | When |
 |---|---|---|
-| **收起** | 88×88pt，**没有玻璃底**，只有一颗太阳浮在桌面上 | 没有会话在跑、没有未读、鼠标不在上面 |
-| **展开** | 宽 198pt，高随内容变，圆角 26pt 的液态玻璃卡片 | 悬停 / 菜单里固定展开 / 有会话块 / 加载中 / 出错待登录 |
+| **Folded** | 88×88 pt, **no glass backing**, just a sun floating on the desktop | no session running, nothing unread, pointer elsewhere |
+| **Expanded** | 198 pt wide, height follows content, 26 pt rounded Liquid Glass card | hover / pinned open from the menu / a session block exists / loading / error awaiting sign-in |
 
-两态之间是定时 S 曲线缓动（展开 0.40s，收起 0.62s），窗口尺寸每帧跟着
-`PetView.expandProgress` 插值。收起比展开慢，是刻意的：「出现」可以利落，
-「消失」慢一点才不像被抹掉。
+Between the two is a fixed-duration S-curve (0.40 s out, 0.62 s back), with the
+window size interpolating on `PetView.expandProgress` every frame. Folding is
+deliberately slower than unfolding: appearing may be brisk, but disappearing
+needs to be slow enough that it does not look like the thing was erased.
 
-### 展开态的布局（顶行高 64pt）
+### Expanded layout (top row 64 pt)
 
 ```
    ┌──────────────────────────────┐
-   │   ◯ 左仪表    ☀ 太阳    ◯ 右仪表 │   ← 太阳居中，两个仪表分居左右
-   │                              │      (x = 卡片宽 ×0.17 和 ×0.83)
+   │  ◯ left dial   ☀ sun   ◯ right dial │  ← sun centred, dials on either side
+   │                              │      (x = card width ×0.17 and ×0.83)
    │  ┌────────────────────────┐  │
-   │  │ 会话标题        ◜ 转圈 │  │   ← 会话块，50pt 高，间距 6pt，最多 4 个
-   │  │ 正在思考 · 3 分 12 秒   │  │
-   │  │ 上下文 468.2k/1.0M  47%│  │
+   │  │ session title    ◜ spin │  │   ← session block, 50 pt tall, 6 pt apart, max 4
+   │  │ Thinking · 3m 12s       │  │
+   │  │ Context 468.2k/1.0M  47%│  │
    │  └────────────────────────┘  │
    │                              │
-   │  Claude 用量           Max   │   ← 悬停详情：每条限额一行
-   │  ● 5 小时         62%   3h1m │
-   │  ● 每周 · 全部模型 41%  周四  │
-   │  刚刚更新                     │
+   │  Claude usage          Max   │   ← hover detail: one line per allowance
+   │  ● 5 hours        62%   3h1m │
+   │  ● Weekly · all   41%   Thu  │
+   │  updated just now            │
    └──────────────────────────────┘
 ```
 
-**不再是「右边双圆环」**——那是好几轮之前的布局。
+**It is no longer "two rings on the right"** — that was several iterations ago.
 
-### 左右两个仪表
+### The two dials
 
-- **左 = 5 小时限额**，标签固定写「5小时」。
-- **右 = 用得最紧的那条周限额**。标签是「每周」（全部模型）或某个模型名
-  （`weeklyShortName` 把「每周 · Fable」剥成「Fable」）。
-  **这条会换人**——Fable 可能被「全部模型」反超。
-- 环半径 21pt，线宽 5pt，从正上方顺时针填充，最多画满一圈；
-  超限（106%）靠中间的数字说话。
-- 颜色**固定**：左 = 蜜金 `ringLeft`，右 = 杏粉 `ringRight`，不随用量换色。
+- **Left = the five-hour allowance**, label fixed as "5 小时".
+- **Right = whichever weekly allowance is tightest.** The label is either
+  "weekly" (all models) or a model name (`weeklyShortName` strips
+  "每周 · Fable" down to "Fable"). **This one changes identity** — Fable can be
+  overtaken by "all models".
+- Ring radius 21 pt, line width 5 pt, filling clockwise from the top, at most
+  one full turn. An overrun (106%) is expressed by the figure in the middle.
+- The colours are **fixed**: left = honey `ringLeft`, right = apricot
+  `ringRight`. They do not change with usage.
 
-### 太阳身上能读出什么
+### What the sun itself tells you
 
-太阳不只是吉祥物，它是**收起态唯一的读数通道**（那时候没有圈也没有数字）：
+The sun is not merely a mascot: when folded it is **the only readout there is**
+— no rings, no figures.
 
-| 通道 | 含义 |
+| Channel | Meaning |
 |---|---|
-| 身体颜色一路加深 | 全部限额里最高那条的百分比（`maxPercent`） |
-| 眉毛 + 嘴形 | <50% 咧嘴笑；50–80% 抿成一条线；≥80% 倒弧 + 皱眉 |
-| 光芒朝某侧探出、来回摆动 | 那一侧的限额紧张（从 15% 起有幅度，越满摆幅越大、喘得越快） |
-| **光芒尖端的发光色 + 亮度** | 色 = 那一侧的固定发光色（左金右粉）；**亮度 = 那一侧的用量**，越满越亮 |
-| 灰扑扑 + 闭眼 + 飘 zzz | 没有 Claude Code 会话在跑，**或者**拿不到用量数据 |
-| 整圈光芒缓慢转动 | 有会话在思考 |
-| 光芒被鼠标「吸」得有长有短 | 纯装饰（睡着时反过来躲开鼠标） |
+| Body colour deepening continuously | The highest percentage across all allowances (`maxPercent`) |
+| Eyebrows + mouth shape | <50% broad grin; 50–80% flat line; ≥80% inverted arc plus a frown |
+| Rays reaching to one side and swaying | That side's allowance is under pressure (amplitude from 15% up; fuller means wider and faster) |
+| **Ray-tip glow colour + brightness** | Colour = that side's fixed glow colour (gold left, pink right); **brightness = that side's usage** — fuller is brighter |
+| Grey, eyes closed, drifting z's | No Claude Code session running, **or** usage data unavailable |
+| Whole corona turning slowly | A session is thinking |
+| Rays drawn out unevenly by the cursor | Decorative only (reversed while asleep — it shies away) |
 
-睡着时**仍然保留用量信号**（压暗 + 发光色），只是往睡眠灰里收一点。
+While asleep the usage signal is **still preserved** (darkening plus glow
+colour), only pulled a little towards the sleeping grey.
 
-### 会话块
+### Session blocks
 
-每个正在跑的、或者跑完但还没看的会话一块。状态文案：
+One block per session that is running, or has finished but not been looked at.
+The status lines read:
 
-- `等你选择 · 12 秒` —— 抛了 AskUserQuestion，右侧是呼吸的实心圆点，玻璃底染暖色
-- `后台任务 · 1 分 3 秒` —— 主回合结束但 subagents 目录还在写
-- `正在思考 · 3 分 12 秒` —— 右侧转圈
-- `无响应 · 已 6 分钟 无更新` —— 超时失联，**不谎报「已完成」**
-- `未读 · 刚刚完成` —— 右侧呼吸的未读圆点，点一下即消
+- `Waiting for you · 12s` — an AskUserQuestion was raised; a breathing solid dot
+  on the right, and the glass takes on a warm tint
+- `Background task · 1m 3s` — the main turn is over but the subagents directory
+  is still being written
+- `Thinking · 3m 12s` — spinner on the right
+- `Not responding · no update for 6 min` — timed out; **it does not claim the
+  work finished**
+- `Unread · just finished` — breathing unread dot on the right; one click clears it
 
-块的出现/消失按各自的进度连续收放并裁切，看着是「卷起来」消失，下面的块同步上滑。
+Blocks open and close continuously on their own progress value and are clipped
+as they go, so they appear to roll away while the blocks below slide up in step.
 
 ---
 
-## 二、交互
+## 2. Interaction
 
-| 操作 | 效果 |
+| Action | Effect |
 |---|---|
-| 按住拖动 | 移动位置（记住的是**左上角**） |
-| 双击 | 未登录 = 开始登录；已登录 = 立即刷新 |
-| 单击未读会话块 | 标记已读（正在跑的块不拦，让它继续拖动） |
-| 单击「双击登录」按钮 | 同双击 |
-| 右键 | 弹菜单 |
-| 悬停 | 展开详情；停够 1.2 秒再移开会把未读自动清掉 |
-| 菜单栏太阳图标 | 同一套菜单，外加「把桌宠移回屏幕中央」 |
+| Hold and drag | Move it (what is stored is the **top-left** corner) |
+| Double-click | Not signed in = start sign-in; signed in = refresh now |
+| Click an unread block | Mark it read (blocks that are running are not intercepted, so dragging still works) |
+| Click the "double-click to sign in" button | Same as double-click |
+| Right-click | Menu |
+| Hover | Expand the detail; hovering for 1.2 s then leaving also clears anything unread |
+| Menu-bar sun | The same menu, plus "bring the pet back to the centre of the screen" |
 
-右键菜单：登录／重新登录 · 退出登录 ｜ 立即刷新 · 显示用量明细 · 打开网页版用量
-｜ 更通透的玻璃 · 始终置于其他窗口之上 · 登录时自动启动 ｜ 退出。
+Right-click menu: sign in / sign in again · sign out ｜ refresh now · show usage
+breakdown · open the web usage page ｜ clearer glass · keep above other windows ·
+launch at login ｜ quit.
 
 ---
 
-## 三、src结构
+## 3. Source layout
 
-`src/` 下 7 个 Swift 文件，共约 3200 行。
+Seven Swift files under `src/`, about 3,200 lines in total.
 
-| 文件 | 行数 | 内容 |
+| File | Lines | Contents |
 |---|---|---|
-| `main.swift` | 10 | 程序入口（Swift 要求顶层语句只能在此文件，编译时必须放最后） |
-| `Model.swift` | 48 | `UsageRow` / `PetModel`；`ringRows` 决定左右两个环显示哪条 |
-| `Theme.swift` | 100 | 配色（含随明暗切换的动态色）、`easeInOut`、`smoothStep`、`drawText` |
-| `Auth.swift` | 346 | OAuth（PKCE，手动粘贴授权码）、令牌落盘、Claude Code CLI 凭证回退 |
-| `Usage.swift` | 445 | `/api/oauth/usage` 解析 + 取数调度（刷新/退避/登出策略） |
-| `Activity.swift` | 560 | 会话监视：读 Claude Code 记录判断忙/闲、回合计时、上下文占用 |
-| `PetView.swift` | 1023 | 全部绘制与动画状态（太阳、仪表、会话块、悬停详情、无障碍元素树） |
-| `App.swift` | 723 | 窗口、Liquid Glass、菜单、登录流程、能耗与无障碍开关 |
+| `main.swift` | 10 | Entry point (Swift allows top-level statements in this file only, and it must be compiled last) |
+| `Model.swift` | 48 | `UsageRow` / `PetModel`; `ringRows` decides which allowance each ring shows |
+| `Theme.swift` | 100 | Palette (including colours that follow light/dark), `easeInOut`, `smoothStep`, `drawText` |
+| `Auth.swift` | 346 | OAuth (PKCE, code pasted by hand), token storage, fallback to Claude Code CLI credentials |
+| `Usage.swift` | 445 | `/api/oauth/usage` parsing plus fetch scheduling (refresh / back-off / sign-out policy) |
+| `Activity.swift` | 560 | Session watcher: reads Claude Code transcripts for busy/idle, turn timing, context consumption |
+| `PetView.swift` | 1023 | All drawing and animation state (sun, dials, session blocks, hover detail, accessibility element tree) |
+| `App.swift` | 723 | Window, Liquid Glass, menus, sign-in flow, power and accessibility switches |
 
-`src/icon/` 是独立的图标生成器（`make-icons.sh` + `main.swift`），
-几何照抄 `drawPet` 的太阳部分，改了太阳造型要手动重跑。
+`src/icon/` is a standalone icon generator (`make-icons.sh` + `main.swift`). Its
+geometry is copied from the sun part of `drawPet`, so changing the shape of the
+sun means re-running it by hand.
 
-### 关键常量（改之前先看第五节）
+### Key constants (read section 5 before changing any of these)
 
 ```swift
-PetView.compactSide  = 88     // 收起态窗口边长
-AppDelegate.winW     = 198    // 展开态窗口宽
-PetView.topRowH      = 64     // 顶行（太阳 + 两个仪表）
-PetView.blockH       = 50     // 会话块高；blockGap = 6；maxBlocks = 4
-PetView.cardRadius   = 26     // 与 AppDelegate.expandedRadius 一致
-PetView.rayCount     = 9      // 光芒根数，奇数
-PetView.rayMaxPull   = 13     // 鼠标引力最大伸长
-PetView.gaugeMaxPull = 9.5    // 仪表拉扯最大伸长
-PetView.rayPullCap   = 18     // 两股力叠加后的封顶
+PetView.compactSide  = 88     // folded window side length
+AppDelegate.winW     = 198    // expanded window width
+PetView.topRowH      = 64     // top row (sun + both dials)
+PetView.blockH       = 50     // session block height; blockGap = 6; maxBlocks = 4
+PetView.cardRadius   = 26     // matches AppDelegate.expandedRadius
+PetView.rayCount     = 9      // number of rays, odd
+PetView.rayMaxPull   = 13     // maximum extension from cursor gravity
+PetView.gaugeMaxPull = 9.5    // maximum extension from dial pull
+PetView.rayPullCap   = 18     // cap once both forces are summed
 ```
 
-### 节奏
+### Cadence
 
-- 用量：定时器每 15 秒 tick 一次，正常间隔 60 秒才真正发请求；失败按错误类型退避
-  （超时 90s / 网络 90s / 限流 300s / 403 十分钟 / 待登录 3600s）。
-- 会话：窗口可见时每 0.8 秒轮询一次磁盘，不可见时 5 秒。
-- 动画：忙碌或交互中 60fps，单纯呼吸眨眼 24fps；显示器休眠时完全停掉（连磁盘轮询一起停）。
+- Usage: a timer ticks every 15 s, but a request only actually goes out every
+  60 s. Failures back off by error type (timeout 90 s / network 90 s /
+  rate-limited 300 s / 403 ten minutes / awaiting sign-in 3600 s).
+- Sessions: the disk is polled every 0.8 s while the window is visible, every
+  5 s when it is not.
+- Animation: 60 fps while busy or interacting, 24 fps for plain breathing and
+  blinking; everything stops when the display sleeps, disk polling included.
 
 ---
 
-## 四、构建与发布
+## 4. Building and releasing
 
 ```bash
-~/Desktop/Sundial/src/build.sh            # 调试：仅本机架构 + ad-hoc 签名 → 桌面 Sundial.app
-~/Desktop/Sundial/src/build.sh share      # 分发（无开发者帐号）：通用二进制 + ad-hoc → dist/Sundial.zip
-~/Desktop/Sundial/src/build.sh release    # 分发（有开发者帐号）：通用二进制 + Developer ID + 公证 + 钉票据
+src/build.sh            # debug: host architecture only + ad-hoc signature → Sundial.app beside the repo
+src/build.sh share      # distribution without a developer account: universal binary + ad-hoc → dist/Sundial.zip
+src/build.sh release    # distribution with one: universal + Developer ID + notarisation + stapled ticket
 ```
 
-脚本自动收集所有 `.swift`（`main.swift` 排最后）。最低 macOS 13.0。
+The script collects every `.swift` automatically (`main.swift` last). Minimum
+macOS 13.0.
 
-**当前 `dist/Sundial.zip` 是 `share` 模式产物**：通用二进制、ad-hoc 签名、**未公证**，
-所以 `dist/INSTALL.txt` 里写了去隔离的步骤。哪天换成 `release`，记得把那段删掉。
+**The current `dist/Sundial.zip` is a `share` build**: universal, ad-hoc signed,
+**not notarised**, which is why `dist/INSTALL.txt` explains how to clear the
+quarantine flag. If that ever changes to `release`, remember to delete that
+passage.
 
-`release` 需要一次性准备：Xcode › Settings › Accounts › Manage Certificates › **+** ›
-Developer ID Application；再存公证凭据
+`release` needs a one-off setup: Xcode › Settings › Accounts › Manage
+Certificates › **+** › Developer ID Application; then store notarisation
+credentials with
 `xcrun notarytool store-credentials solaris-notary --apple-id … --team-id …`
-（密码用 appleid.apple.com 生成的 App 专用密码）。
+(using an app-specific password generated at appleid.apple.com).
 
 ---
 
-## 五、关键设计决定与踩过的坑
+## 5. Design decisions, and the traps hit along the way
 
-这一节是本文件最值钱的部分。改界面之前先读。
+This section is the most valuable part of the file. Read it before changing the
+interface.
 
-### 圆环与光芒
+### Rings and rays
 
-**圆环缓动按「位置」记，不按「标签」记。**
-右圈显示的是最紧的那条周限额，而**哪条最紧是会换人的**。按标签记的话，
-换人时新标签没有历史值，要从 0 长起来，看着像用量突然清零了——
-实测 216° 一帧掉到 54°，再花半秒爬回 259°。按位置记就只是同一个环从旧值走到新值。
+**Ring easing is kept per position, not per label.**
+The right ring shows whichever weekly allowance is tightest, and **which one
+that is changes over time**. Keeping state by label means a newly promoted label
+has no history and has to grow from zero, which reads as usage suddenly
+collapsing — measured: 216° dropping to 54° in a single frame, then half a
+second climbing back to 259°. Keeping it by position is simply one ring moving
+from an old value to a new one.
 
-**光芒的渐变必须越往外越亮。**
-之前让它渐变到深酒红/深紫，深色压在暖色身体上，看着就是一块淤青——「太阳生病了」。
-太阳是发光体。所以每侧留了两个色：环用饱和一点的 `ring*`（要在玻璃上够 3:1 对比度），
-光芒尖用更亮的 `glow*`（画在太阳身上，不受背景对比度约束）。
-中间还试过按 Pantone 色谱取色，已撤回。
+**A ray's gradient must get brighter towards the tip.**
+An earlier version graduated towards deep wine and plum. Dark laid over the warm
+body reads as a bruise — "the sun looks ill". A sun is a light source. So each
+side keeps two colours: the ring uses the more saturated `ring*` (which has to
+clear 3:1 against glass), and the ray tip uses the brighter `glow*` (drawn on
+the sun itself, so unconstrained by background contrast). Picking colours from a
+Pantone spectrum was also tried, and withdrawn.
 
-**染色只上在远端**（渐变位置 `[0, 0.32, 1]`，内侧三成保持本色）：
-颜色是从仪表盘那边「蹭」过来的，整根均匀上色反而看不出这层关系；
-何况根部本来就被身体挡住了。渐变角度**直接取光芒朝向**——实测 `-angle`
-在 90°/270° 会把颜色画到根部。
+**The tinting sits only at the far end** (gradient stops `[0, 0.32, 1]`, the
+inner third keeping the body colour): the colour reads as having been picked up
+*from* the dial, and tinting the whole ray evenly loses that relationship — the
+root is hidden behind the body anyway. The gradient angle is **the ray's own
+bearing**: measured, `-angle` paints the colour onto the root at 90° and 270°.
 
-**角度衰减放宽到 `pow(cos, 0.8)`**：要让一整个半边都染上，
-只有正对着的那一两根变色的话太细，扫一眼根本看不出来。
+**Angular falloff was relaxed to `pow(cos, 0.8)`**: a whole half of the corona
+needs to take the colour. With only the one or two rays pointing straight at it
+changing, the effect is too thin to notice at a glance.
 
-**发光强度跟用量走（`pow(u, 0.75)`），颜色不跟用量走。**
-颜色是状态，摆动是状态的表现，两者混在一起会闪得人眼花。
-强度这条通道是**空闲态唯一还能读出用量的地方**——只剩一颗太阳时没有圈也没有数字，
-而灰身体压暗那点差别在 88pt 见方里根本看不出来（实测 10% 和 99% 几乎一样）。
-「越满越亮」比「越满越暗」符合直觉，也不会重蹈深色淤青的覆辙。
+**Glow intensity follows usage (`pow(u, 0.75)`); colour does not.**
+Colour is the state, movement is the expression of the state; mixing the two
+makes it flicker distractingly. Intensity is **the only channel left that can
+convey usage while idle** — folded down there are no rings and no figures, and
+the darkening of a grey body is invisible at 88 pt square (measured: 10% and 99%
+look practically identical). "Brighter as it fills" is also more intuitive than
+"darker", and does not repeat the bruise problem.
 
-**圆环不再按用量三档换色。**
-那件事由中间的数字、弧长、太阳的表情和身体深浅一起报了。固定下来后，
-左右各一个色成了身份标识——不用读标签就知道哪边是哪个。
-悬停详情里的圆点后来也跟着改了：**圆点的颜色标的是「这一条对应哪个仪表」**
-（金＝左圈、粉＝右圈、灰＝没上圈），不是用量高低；百分比数字用普通文字色。
-之前两处规则打架——同一个 60%，圆环画杏粉、列表里却是琥珀，像两套系统。
+**Rings no longer switch colour across three usage bands.**
+That information is already carried by the figure in the middle, the arc length,
+the sun's expression and its body depth. Once fixed, one colour per side became
+an identity marker — you know which is which without reading the label. The dots
+in the hover detail were later brought into line: **a dot's colour says which
+dial that row corresponds to** (gold = left ring, pink = right ring, grey = not
+on a ring), not how high the usage is; the percentage uses ordinary text colour.
+Previously the two rules contradicted each other — the same 60% was drawn
+apricot on the ring but amber in the list, as if two systems were at work.
 
-`barColor` 与整套「鼠尾草绿／琥珀／砖红」三档色**已经删除**。它最后只剩
-上下文条和等待圆点两处在用，等于为两个小元素养着一整套色相，现已并入珊瑚族：
-上下文条用珊瑚、过 60% 往 `sunDeepen` 压；等待圆点用 `coralDeep`，
-它和「在跑」的区别靠形状（实心呼吸点 vs 转圈）而不是色相。
+`barColor` and the whole sage-green / amber / brick three-band palette have
+**been deleted**. It ended up used in only two places — the context bar and the
+waiting dot — which meant maintaining an entire hue family for two small
+elements. Both now live in the coral family: the context bar uses coral, pushed
+towards `sunDeepen` past 60%; the waiting dot uses `coralDeep`, distinguished
+from "running" by shape (solid breathing dot vs spinner) rather than hue.
 
-**仪表拉扯的幅度要有下限**：`k = 0.4 + 0.6 × clamp((pct−15)/75)`。
-原来是从 50% 起的线性斜坡，60% 的圈只拿到满力的 20%，摆幅 3.5pt，等于没动。
+**Dial pull needs a floor on its amplitude**: `k = 0.4 + 0.6 × clamp((pct−15)/75)`.
+The original was a linear ramp starting at 50%, which gave a 60% ring only 20%
+of full strength — a 3.5 pt sway, indistinguishable from stillness.
 
-**「呼吸」是一吸一斥，不是强弱起伏**：`breath = 0.08 + 0.92·sin(...)`，
-取值在 −0.84 到 1.00 之间**过零**——正半周把这一侧的光芒拽出去，负半周又收回来。
-只在 0.55–1.0 之间变强弱、方向始终向外的话，几乎看不出在动。两侧相位差半个周期，于是整圈光芒左右摇曳，
-而不是一起胀缩。快慢直接跟用量走（不跟带下限的幅度走，否则两边喘得一样快）：
-空闲约 7 秒一轮，满格约 3 秒。
+**The "breath" both attracts and repels; it is not a swell in intensity**:
+`breath = 0.08 + 0.92·sin(...)`, ranging from −0.84 to 1.00 and therefore
+**crossing zero** — the positive half-cycle pulls that side's rays out, the
+negative draws them back. Varying only between 0.55 and 1.0, always outwards, is
+almost impossible to see as motion. The two sides are half a period apart, so
+the corona sways from side to side rather than pulsing as a whole. Speed follows
+usage directly (not the floored amplitude, or both sides would breathe at the
+same rate): roughly 7 s per cycle when idle, roughly 3 s when full.
 
-**光芒减到 9 根后**，对齐指数要从 2.2 降到 1.4——太尖的衰减只有一根够得着，
-看不出「一片被拉过去」的感觉。睡着时躲鼠标的 `recoilK` 从 0.28 提到 1.05：
-远侧只长了不到两个点，肉眼根本看不出来。
+**Once the rays were reduced to nine**, the alignment exponent had to come down
+from 2.2 to 1.4 — too sharp a falloff leaves only one ray within reach, and the
+sense of "a whole side being drawn across" is lost. The sleeping recoil constant
+`recoilK` went from 0.28 to 1.05 for the same reason: the far side was extending
+by less than two points, which the eye simply does not register.
 
-**`rayPullCap = 18`**：收起时窗口只有 88pt 见方（半径 44），伸过头会被窗口边缘直接切掉。
+**`rayPullCap = 18`**: folded, the window is only 88 pt square (radius 44), so
+anything reaching further is cut off flat by the window edge.
 
-### 身体与表情
+### Body and expression
 
-**身体加深的目标色不能用 `gaugeAlert`**——那个是随明暗切换的，深色模式下它反而更亮，
-于是越紧张身体越浅，正好反了。用固定的深砖红 `sunDeepen`。
+**The target colour for body darkening must not be `gaugeAlert`** — that one
+follows light/dark, and in dark mode it is *brighter*, so the body would grow
+paler as things got tighter, exactly backwards. Use the fixed deep brick
+`sunDeepen`.
 
-**睡着时压暗的目标色也不能用 `sunDeepen`**——灰身体掺红会显得病恹恹。
-另设偏暖的深灰 `sleepDeepen`。
+**Nor can the sleeping darkening target be `sunDeepen`** — red mixed into a grey
+body looks sickly. A separate warm dark grey, `sleepDeepen`, is used instead.
 
-**上半身只加深四成、下半加满。**
-身体本来是上浅下深的渐变，脸长在偏上的位置；全身一起压暗的话，
-深色红底配深褐五官，对比度会掉到 2.5:1（图形下限是 3:1），表情就糊了。
+**The upper body darkens by only four tenths, the lower fully.**
+The body is a light-to-dark gradient with the face sitting towards the top;
+darkening it uniformly puts dark brown features on a dark red field and drops
+contrast to 2.5:1 (the floor for graphics is 3:1), at which point the expression
+turns to mush.
 
-**豆豆眼不点高光**：这个尺寸下那点白只有 0.6pt，不是高光而是一粒噪点。
+**No highlight dot in the eyes**: at this size that speck of white is 0.6 pt —
+not a highlight, just a stray pixel.
 
-**去掉了「瞟仪表」，但保留眨眼。**
-这两件事不一样：瞟仪表是眼珠周期性左右移动（看着像在闪），
-眨眼只是一次高度收缩（0.16s，间隔 2.4–6.0s 随机），不抢眼。
+**"Glancing at the dials" was removed; blinking was kept.**
+They are not the same thing: glancing moved the pupils from side to side
+periodically, which read as flickering. A blink is a single vertical contraction
+(0.16 s, at random intervals of 2.4–6.0 s) and does not draw the eye.
 
-**嘴的控制点从 ±2.6 移到 ±4.8**：靠得太近会把曲线拽成尖底的 V，往外挪才是圆润的 U。
+**The mouth's control points moved from ±2.6 to ±4.8**: too close together and
+the curve is dragged into a sharp-bottomed V; further out gives the rounded U.
 
-### 动画与窗口伸缩
+### Animation and window resizing
 
-**用定时 S 曲线（`Tween`），不用指数平滑（`smoothStep`）。**
-指数平滑总是头快尾慢：收起时前 0.1 秒就走完大半，剩下一点点慢慢磨——
-看着就是「啪」地消失，而不是渐变。现在：悬停 0.30/0.42s，展开 0.40/0.62s，
-会话块 0.34/0.50s，一律收起比展开慢。
-（`smoothStep` 仍用在圆环数值、光芒伸长、身体偏移这些**跟随型**的量上，那里合适。）
+**Use a fixed-duration S-curve (`Tween`), not exponential smoothing (`smoothStep`).**
+Exponential smoothing is always fast then slow: folding covers most of the
+distance in the first 0.1 s, then grinds out the remainder — which simply reads
+as snapping out of existence rather than easing. Now: hover 0.30/0.42 s, expand
+0.40/0.62 s, session blocks 0.34/0.50 s, folding always slower than unfolding.
+(`smoothStep` is still used for ring values, ray extension and body lean — the
+*following* quantities, where it is the right tool.)
 
-**窗口高度必须用连续的 `blocksHeight`，不能数块数。**
-块数是离散的，最后一块一消失窗口会在一帧里掉 50pt，把所有缓动都吃掉。
-所以正在淡出的块要留在 `blocks` 数组里自带数据继续画。
-`blocksHeight` 还必须夹到 0——`sum` 很小时 `sum×56−6` 是负的，窗口会先缩过头再弹回来。
+**Window height must use the continuous `blocksHeight`; never count blocks.**
+Block count is discrete, so the last block disappearing drops the window 50 pt
+in a single frame and eats every easing curve. Blocks that are fading out
+therefore stay in the `blocks` array carrying their own data so they can still
+be drawn. `blocksHeight` must also be clamped at 0 — when `sum` is small,
+`sum×56−6` is negative and the window shrinks past its target before springing back.
 
-**`expandTargetValue` 用 `blocks` 而不是 `visibleSessions`**：
-块还在淡出时窗口不能先收，否则两段动画叠在一起，看起来仍然是「啪」一下。
+**`expandTargetValue` uses `blocks`, not `visibleSessions`**: the window must not
+start folding while a block is still fading, or the two animations overlap and
+it once again looks like a snap.
 
-**仪表和玻璃都要比窗口先退场。**
-仪表在 `e = 0.34` 才开始出现（`(e−0.34)/0.66`）并略微缩放，
-玻璃在 `e/0.45` 之前就淡完。等窗口都快收窄到只剩太阳了它们还在，
-就会被窗口边缘生生切掉／看见一个圆形色块「啪」地不见。
+**Both the dials and the glass have to leave before the window does.**
+The dials only start appearing at `e = 0.34` (`(e−0.34)/0.66`) and scale slightly
+with it; the glass has finished fading by `e/0.45`. If either is still there when
+the window has almost narrowed to the sun alone, it gets sliced off by the window
+edge, or a circular patch of colour vanishes on the spot.
 
-**`setFrame` 不会替静止的光标补发 `mouseExited`**：窗口收缩后要手动校准悬停态，
-否则鼠标没动、窗口缩走了，`hovered` 会一直挂着。
+**`setFrame` does not deliver a `mouseExited` to a stationary cursor**: after the
+window shrinks, hover state has to be reconciled by hand, otherwise the pointer
+never moved, the window moved out from under it, and `hovered` stays stuck on.
 
-**弧的旋向**：本视图 `isFlipped`，画布上下翻转会把旋向也翻过来，
-所以「角度递增」在屏幕上才是顺时针（离屏渲染逐格核对过）。
-转圈的首尾无缝靠：尾角每周期正好走满 360°，弧长按余弦在 26°–290° 之间振荡
-（首尾导数为 0），所以 phase 回绕处角度与弧长都完全连续。
+**Arc direction**: this view is `isFlipped`, and flipping the canvas vertically
+flips the direction of rotation with it, so *increasing* angles are what render
+clockwise on screen (verified frame by frame with offscreen renders). The
+spinner's seamless wrap relies on the tail angle covering exactly 360° per cycle
+while the arc length oscillates between 26° and 290° on a cosine (zero derivative
+at both ends), so both angle and length are continuous where the phase wraps.
 
-### 玻璃与窗口
+### Glass and windowing
 
-**`NSGlassEffectView` 不设 `contentView`。**
-WWDC25 session 310 要求把内容放进 `contentView` 由 AppKit 代做可读性处理。
-实测（同一背景 A/B）：一旦设了，AppKit 会为铺满整块的密集文字加一层可读性背衬，
-玻璃被压成几乎不透明的深色板，背后完全透不过来，也就没有液态玻璃的观感。
-改用**兄弟视图叠放**，可读性自己用语义色（`labelColor` 系列）+ 实测对比度保证。
+**`NSGlassEffectView` is used without setting `contentView`.**
+WWDC25 session 310 asks you to put content inside `contentView` and let AppKit
+handle legibility. Measured, A/B against the same background: once it is set,
+AppKit adds a legibility backing behind dense text covering the whole area, and
+the glass is flattened into a nearly opaque dark panel — nothing shows through,
+and the Liquid Glass look is gone. Sibling views stacked instead, with legibility
+guaranteed by semantic colours (the `labelColor` family) and measured contrast.
 
-**玻璃视图要转发 `hitTest`**，否则默认把命中测试拦在自己身上，
-拖动/双击/点已读全部失效。
+**The glass view has to forward `hitTest`**, or it swallows hit testing by
+default and dragging, double-clicking and click-to-mark-read all stop working.
 
-**旧路径（macOS 26 以下）里 `petView` 必须和 `NSVisualEffectView` 平级**：
-做成子视图时，「降低透明度」隐藏毛玻璃会把整个界面一起隐藏，App 直接消失。
+**On the pre-macOS-26 path, `petView` must be a sibling of `NSVisualEffectView`**:
+made a child, "Reduce Transparency" hides the blur view and takes the entire
+interface with it, so the app simply disappears.
 
-**`hasShadow = false`**：窗口一直在伸缩变形，系统投影会残留成一圈方框黑边。
+**`hasShadow = false`**: the window is constantly resizing, and the system shadow
+leaves a rectangular black outline trailing behind it.
 
-**置顶用 `.statusBar`(25)，不用 `.popUpMenu`(101)**：后者会盖住菜单栏，
-也会盖住本 App 自己的模态登录框（模态层级只有 8）。弹模态期间还要
-`withLoweredWindow` 把窗口临时降到 `.normal`。
+**Float using `.statusBar` (25), not `.popUpMenu` (101)**: the latter covers the
+menu bar, and also covers this app's own modal sign-in dialogue (modal level is
+only 8). While that dialogue is up, `withLoweredWindow` also drops the window to
+`.normal` temporarily.
 
-**窗口不接受 key**（`canBecomeKey = false`）：点击时不抢当前 App 的焦点，
-也就不会画出那圈焦点边框。拖动、双击、右键都不依赖 key 状态，
-登录框是独立的 `NSAlert` 窗口不受影响。
+**The window does not accept key** (`canBecomeKey = false`): clicking it does not
+steal focus from the current app, so no focus ring is drawn. Dragging,
+double-clicking and right-clicking do not depend on key state, and the sign-in
+dialogue is a separate `NSAlert` window, unaffected.
 
-**存左上角，不存左下角**：高度随内容变化，存底边会导致每次重启都上移一点。
-旧键 `PetWindowOrigin`（左下角）会做一次 +182 的迁移。
+**Store the top-left corner, not the bottom-left**: the height changes with
+content, so storing the bottom edge makes the window creep upwards on every
+restart. The old `PetWindowOrigin` key (bottom-left) is migrated once with a
++182 offset.
 
-**`.accessory` 下必须手搭一个 Edit 主菜单**，否则 ⌘V 没法路由到第一响应者，
-登录框里粘贴不了授权码。菜单项 `target` 必须留空，走响应链。
+**Under `.accessory` an Edit menu has to be built by hand**, or ⌘V has no route
+to the first responder and the authorisation code cannot be pasted into the
+sign-in dialogue. Menu items must leave `target` empty so they travel the
+responder chain.
 
-**无障碍元素必须自己持有**：AppKit 只弱引用 `accessibilityParent`，
-现造现返的元素会立刻析构，辅助功能读到的全是失效元素（-25202）。
-而且只有元素集合变了才能重建（重建会把 VoiceOver 光标打回原点），
-数值/位置变化就地更新。
+**Accessibility elements must be retained by us**: AppKit only weakly references
+`accessibilityParent`, so elements created and returned on the spot deallocate
+immediately and assistive technology reads nothing but dead elements (-25202).
+They may also only be rebuilt when the *set* of elements changes — rebuilding
+sends the VoiceOver cursor back to the start — so value and position changes are
+updated in place.
 
-**`menuNeedsUpdate` 里不能替换 `statusItem.menu`**（正在打开的就是它），要原地重建条目。
+**`statusItem.menu` must not be replaced inside `menuNeedsUpdate`** (that is the
+menu currently opening); rebuild its items in place.
 
-### 登录与令牌
+### Sign-in and tokens
 
-**令牌存本地文件（`~/Library/Application Support/Sundial/credentials.json`，0600），
-不存钥匙串。**
-钥匙串 ACL 认代码签名，而这个 App 每次重新编译签名都变，于是钥匙串认不出新版本、
-要求输密码重新授权。文件不受签名影响。目录 0700。
-（旧目录 `Solaris/` 会自动搬迁一次。）
+**The token is stored in a local file
+(`~/Library/Application Support/Sundial/credentials.json`, mode 0600), not the
+Keychain.**
+Keychain ACLs are tied to the code signature, and this app's signature changes
+on every rebuild, so the Keychain fails to recognise the new build and demands a
+password to re-authorise. A file is unaffected by signing. The directory is 0700.
+(The old `Solaris/` directory is migrated once.)
 
-**不能用 `.completeFileProtection`**：那是 iOS 的数据保护，在 macOS 上会把访问权
-绑到写入方的代码签名，结果读不了自己写的令牌（错误 260/EPERM），
-表现为莫名其妙要重新登录。保护靠权限位。
+**`.completeFileProtection` must not be used**: that is iOS data protection, and
+on macOS it binds access to the writing process's code signature — with the
+result that the app cannot read the token it wrote itself (error 260 / EPERM),
+which presents as being inexplicably asked to sign in again. Permission bits do
+the protecting.
 
-**同一次运行内复用同一个 PKCE verifier。**
-每次点登录都换新的话，用户从上一个授权页（浏览器很容易留着旧标签）复制的码
-就永远对不上，表现为「反复登录失败」。登录成功后才作废重来。
+**One PKCE verifier is reused for the whole run.**
+Generating a fresh one on every sign-in attempt means a code copied from a
+previous authorisation page — and browsers keep those tabs around — can never
+match, which presents as sign-in "always failing". It is only invalidated and
+regenerated after a successful sign-in.
 
-**state 不符不直接拒绝。**
-真正的安全绑定是 PKCE 的 `code_verifier`，服务端会校验；这里照常提交让服务端判断，
-否则浏览器里留着的旧授权页会让人反复失败。
+**A mismatched `state` is not rejected outright.**
+The real security binding is PKCE's `code_verifier`, which the server verifies;
+this submits as usual and lets the server decide, since otherwise a stale
+authorisation page left open in the browser causes repeated failures.
 
-**只有服务端明确否定凭证（400/401）才清除登录。**
-网络断开、429 限流、5xx 一律保留 refresh token 稍后重试。
-401 时最多续期 3 次，退避 30s → 120s → 600s。
-写令牌走 `commitToken(_:epoch:)`，纪元不符（期间用户退出登录了）就整单丢弃。
+**Only an explicit rejection of the credentials by the server (400/401) clears
+the sign-in.** A dropped connection, a 429, or any 5xx keeps the refresh token
+for a later attempt. On a 401 it renews at most three times, backing off
+30 s → 120 s → 600 s. Tokens are written through `commitToken(_:epoch:)`, and a
+mismatched epoch (the user signed out in the meantime) discards the whole thing.
 
-**钥匙串读取失败只记 `keychainBlocked`，不当结论**，否则 60 秒轮询会反复弹授权框；
-只有用户手动刷新才重试。主线程的 `hasToken` 只看内存缓存，绝不碰钥匙串。
+**A failed Keychain read is recorded as `keychainBlocked`, not treated as a
+conclusion** — otherwise the 60-second poll raises the authorisation dialogue
+over and over. Only a manual refresh retries. The main thread's `hasToken` looks
+solely at the in-memory cache and never touches the Keychain.
 
-**用户主动「退出登录」会写 `petUserSignedOut`**，之后不再回退到 Claude Code CLI 凭证。
-（内部失效则仍允许回退。）
+**An explicit "sign out" writes `petUserSignedOut`**, after which the Claude Code
+CLI credentials are no longer used as a fallback. (An internal failure still
+allows the fallback.)
 
-### 用量解析
+### Usage parsing
 
-- **顶层键排序后再遍历**：Swift 字典无序，撞名时若不定序，同一标签取到哪一条会随机变化。
-- **百分比不夹到 100**（上界 999 只为防脏数据撑破版面）：超限时就该看见「106%」。
-- **套餐名认多个键**：原先只认死 `rate_limit_tier`，而接口早就不返回它了，
-  徽章其实一直是空的也没人发现。
-- **三个 tier 分支都要赋值**：漏掉最后一个，换账号后旧套餐名会一直挂在新账号的数字旁边。
+- **Sort the top-level keys before iterating**: Swift dictionaries are unordered,
+  so with duplicate names, which row a given label picks up would vary run to run.
+- **Percentages are not clamped to 100** (the 999 ceiling exists only to stop bad
+  data breaking the layout): an overrun *should* be visible as "106%".
+- **The plan name is read from several possible keys**: originally only
+  `rate_limit_tier` was accepted, and the endpoint had long stopped returning it
+   — the badge had in fact been empty the whole time and nobody had noticed.
+- **All three tier branches must assign**: missing the last one leaves the old
+  plan name sitting next to the new account's figures after switching accounts.
 
-### 会话监视
+### Session watching
 
-数据来源只有两处，且**只读元数据，不读对话正文**：
-`~/.claude/sessions/*.json`（运行中会话注册表：pid + sessionId + 标题）和
-`~/.claude/projects/<项目>/<sessionId>.jsonl`（只读尾部，判断忙/闲与回合起点）。
+There are only two data sources, and **only metadata is read, never the text of
+the conversation**: `~/.claude/sessions/*.json` (the registry of running
+sessions: pid + sessionId + title) and
+`~/.claude/projects/<project>/<sessionId>.jsonl` (only the tail, to determine
+busy/idle and where the turn began).
 
-- **pid 不够，要比对 `procStart`。** pid 会被系统回收，而这里连 EPERM（别人的进程）
-  都当作「还活着」，于是一个陌生进程会把早就结束的会话复活成幽灵方块。
-- **读尾部要逐步扩窗。** 单条记录可能比窗口还大（工具返回上百 KB 很常见，
-  本机见过 1.35MB）。窗口整个落在一条记录内部时一行都解析不出来，会被判成「已完成」，
-  于是弹出假的未读提示并把计时清零。扩到至少装得下一条完整记录（两个换行）为止。
-- **回合起点直接锚在用户那条记录上。** 以前靠 `last-prompt` 记录来定位，
-  可它是在用户消息之后才写的，锚点总是落到后面那条工具返回上——
-  实测 349 个回合有 348 个偏晚，中位数晚 112 秒，于是刚提交的问题显示成「0 秒」。
-- **取本回合的第一次用户动作，不是最后一次**：中途插话（steering）不该把计时清零。
-- **Esc 中断要把 `turnStart`/`resumeStart`/`turnFloor` 一起作废**，
-  漏掉的话旧时间戳会被下一轮当成起点，实测出现过「刚开始就已用 9 分 32 秒」。
-- **合成记录（`model == "<synthetic>"`，API 报错占位）未必是真结束**，
-  Claude 常会自动重试接着跑。先把起点存起来，续上了就还原，免得计时从 0 重来。
-- **后台目录不能「看够 N 个就停」**：枚举顺序不定，可能正好漏掉最新那个文件。
-- **`bgFresh = 90` 秒。** 实测同一个后台代理的相邻写入间隔 p95≈37 秒、p99≈136 秒，
-  早先的 25 秒会在一次运行途中反复判「跑完了」，弹假提示、把计时清零。
-  新鲜度还必须按「探测那一刻」算——拿 3 秒的缓存值跟当前时间比，
-  会凭空多出最多 3 秒，正好把在跑的后台任务判成停了。一次探空不算完，连续两次才认。
-- **超时 ≠ 跑完。** 以前静悄悄把方块抹掉、太阳去睡觉，而 Claude 可能还在想；
-  现在明说「无响应」。`staleAfter = 300s`，等工具返回时放宽到 900s
-  （Bash 单次上限 600 秒，再留出重试余量）。
-- **`finishedAt` 用记录文件自己的写入时刻**，不是「我发现它的时刻」，
-  否则回合在夜里结束、早上唤醒电脑，会显示成「刚刚完成」。
-- **上下文上限估错的方向很重要**：分母估小了，进度条会顶满并打印出
-  「已用 992.9k / 200.0k」这种自相矛盾的数字；估大了只是少报一点，不会骗人。
-  所以只把确定是 200k 的机型列进白名单，其余（含尚未出现的新型号）按 1M 估。
-  本机记录实测 `claude-opus-4-8` 单次上下文到过 992,897 token。
+- **A pid is not enough; `procStart` has to be compared too.** Pids get recycled,
+  and EPERM (someone else's process) is treated here as "still alive", so an
+  unrelated process resurrects a long-finished session as a ghost block.
+- **The tail window has to grow progressively.** A single record can be larger
+  than the window (tool results of hundreds of KB are common; 1.35 MB has been
+  seen on this machine). When the window lands entirely inside one record, not a
+  single line parses, the session is judged finished, a false unread notice pops
+  up and the timer resets. Grow until at least one complete record fits (two
+  newlines).
+- **The turn's start is anchored directly to the user's own record.** It used to
+  be located via the `last-prompt` record, but that is written *after* the user's
+  message, so the anchor always landed on the following tool result — measured
+  across 349 turns, 348 were late, median 112 s, so a question just submitted
+  displayed as "0s".
+- **Take the first user action of the turn, not the last**: steering mid-turn
+  should not reset the timer.
+- **An Esc interruption must invalidate `turnStart`, `resumeStart` and
+  `turnFloor` together**; miss one and the stale timestamp becomes the next
+  turn's start — measured, this produced "9m 32s elapsed" on a turn that had just
+  begun.
+- **A synthetic record (`model == "<synthetic>"`, the placeholder left by an API
+  error) does not necessarily mean the end**; Claude often retries by itself and
+  carries on. Stash the start first and restore it if the turn resumes, so the
+  timer does not begin again from zero.
+- **The background directory must not stop after N entries**: enumeration order
+  is unspecified, so it may skip exactly the newest file.
+- **`bgFresh = 90` seconds.** Measured, the gap between consecutive writes by the
+  same background agent is p95 ≈ 37 s and p99 ≈ 136 s; the earlier 25 s judged
+  the task "finished" repeatedly mid-run, raising false notices and resetting the
+  timer. Freshness must also be measured from *the moment of probing* — comparing
+  a 3-second-old cached value against the current time invents up to 3 s of age,
+  which is exactly enough to declare a running background task stopped. One empty
+  probe is not enough either; two consecutive ones are required.
+- **A timeout is not a completion.** It used to remove the block quietly and send
+  the sun to sleep while Claude might still have been thinking; it now says "not
+  responding". `staleAfter = 300 s`, relaxed to 900 s while waiting on a tool
+  result (a single Bash call can run 600 s, plus room for a retry).
+- **`finishedAt` uses the transcript file's own write time**, not the moment we
+  noticed. Otherwise a turn that ended overnight shows as "just finished" when
+  the machine wakes in the morning.
+- **The direction of an error in the context limit matters.** Underestimate the
+  denominator and the bar pins to full while printing self-contradictory figures
+  like "992.9k used of 200.0k"; overestimate and it merely under-reports, which
+  does not mislead. So only models known to be 200k are listed, and everything
+  else — including models that do not exist yet — is assumed to be 1M. Measured
+  on this machine's transcripts, `claude-opus-4-8` reached 992,897 tokens in a
+  single context.
 
-### 构建
+### Building
 
-- **编译与签名一律在 `$TMPDIR` 里做，不能在桌面上做。**
-  桌面开着 iCloud 同步，文件提供程序会异步给 `.app` 重新打上 `com.apple.FinderInfo`，
-  和 `codesign` 抢时间——于是间歇性报
-  「resource fork, Finder information … not allowed」，清多少次 xattr 都没用，
-  因为它是在清完之后才被加回去的。签完再 `ditto` 到桌面。
-- **传统 `.icns` 不会跟随系统明暗自动切换。**
-  能切换的是 macOS 26 的 `.icon` 格式，只能用 Xcode 的 Icon Composer（纯 GUI）做。
-  资源目录那条路走不通：`actool` 会零报错地收下深色变体，
-  但编出来的 `Assets.car` 里根本没有它们（mac idiom 的 appiconset 不支持明暗变体，
-  那是 iOS 的机制，`assetutil` 可验证）。所以做成手动切换：
-  `icon/make-icons.sh dark` 换一次，再跑 `build.sh`。
+- **Compile and sign in `$TMPDIR`, never on the Desktop.**
+  The Desktop has iCloud sync running, and the file provider asynchronously
+  re-applies `com.apple.FinderInfo` to the `.app`, racing `codesign`. The result
+  is an intermittent "resource fork, Finder information … not allowed", and no
+  amount of clearing xattrs helps, because they are re-added *after* the clear.
+  Sign first, then `ditto` the result out.
+- **Traditional `.icns` cannot follow the system light/dark setting.**
+  The format that can is macOS 26's `.icon`, which is only produced by Xcode's
+  Icon Composer (GUI only). The asset-catalogue route is a dead end: `actool`
+  accepts dark variants without a single warning, but the resulting `Assets.car`
+  does not contain them (an appiconset with the mac idiom does not support
+  light/dark variants — that is an iOS mechanism, and `assetutil` will confirm
+  it). So the switch is manual: `icon/make-icons.sh dark`, then `build.sh`.
 
 ---
 
-## 六、数据、隐私与落盘位置
+## 6. Data, privacy and where things are stored
 
-| 内容 | 位置 |
+| What | Where |
 |---|---|
-| 自己的 OAuth 令牌 | `~/Library/Application Support/Sundial/credentials.json`（0600） |
-| 回退用的 CLI 凭证（只读） | 钥匙串条目 `Claude Code-credentials`，或 `~/.claude/.credentials.json` |
-| 窗口位置 | `UserDefaults` → `PetWindowTopLeft`（旧键 `PetWindowOrigin` 迁移一次） |
-| 界面开关 | `UserDefaults` → `PetClearGlass` / `PetAbovePopups` / `petUserSignedOut` |
-| 会话数据 | 不落盘，全部在内存里 |
+| Our own OAuth token | `~/Library/Application Support/Sundial/credentials.json` (0600) |
+| CLI credentials used as fallback (read-only) | Keychain item `Claude Code-credentials`, or `~/.claude/.credentials.json` |
+| Window position | `UserDefaults` → `PetWindowTopLeft` (old key `PetWindowOrigin` migrated once) |
+| Interface toggles | `UserDefaults` → `PetClearGlass` / `PetAbovePopups` / `petUserSignedOut` |
+| Session data | Not written to disk at all; held in memory |
 
-网络只连三个地址：`claude.ai/oauth/authorize`（浏览器打开）、
-`console.anthropic.com/v1/oauth/token`（换令牌/续期）、
-`api.anthropic.com/api/oauth/usage`（查用量）。不经过任何第三方，不写日志，无统计。
+Only three addresses are ever contacted: `claude.ai/oauth/authorize` (opened in
+the browser), `console.anthropic.com/v1/oauth/token` (exchange and renewal) and
+`api.anthropic.com/api/oauth/usage` (reading usage). Nothing passes through a
+third party, nothing is logged, there are no analytics.
 
-用量接口是 Claude Code 官方客户端自用的未公开接口。Anthropic 若改格式，
-桌宠会显示「接口返回了看不懂的数据」并每 5 分钟重试。
+The usage endpoint is an undocumented one used by Claude Code's own client. If
+Anthropic changes the format, the pet will say it received data it could not make
+sense of and retry every five minutes.
 
 ---
 
-### 没有订阅时的降级
+### Degrading gracefully without a subscription
 
-授权页要求 Claude Max/Pro，没订阅的账号根本连不上。但**会话状态那半边读的是
-本地记录文件，跟登录和订阅都没关系**。
+The authorisation page requires Claude Max/Pro, and an account without one simply
+cannot connect. But **the session half reads local transcript files and has
+nothing to do with signing in or subscribing**.
 
-早先 `draw` 里那句 `if model.rows.isEmpty, let msg = model.errorMsg { … return }`
-是无条件的，等于在拿不到用量时把唯一还能用的功能也一起关掉了。现在加了
-`blocks.isEmpty` 这个条件：只有连会话块都没有时错误提示才独占整张卡片。
-配套地——没有 `rows` 就不画那两个空圈（留两个空轨道会让人以为坏了），
-详情区补一行「未登录，只显示会话状态」，底部 footer 不再重复同一句。
-`App.expandedHeight` 的错误分支同样加了 `blocksHeight <= 0` 才走。
+The line in `draw` — `if model.rows.isEmpty, let msg = model.errorMsg { … return }`
+— used to be unconditional, which meant that failing to fetch usage also switched
+off the one feature that still worked. It now also requires `blocks.isEmpty`, so
+the error notice only takes over the whole card when there are no session blocks
+either. Along with that: with no `rows`, the two empty rings are not drawn (two
+empty tracks make people think it is broken), the detail area gains a line saying
+usage is unavailable and only session state is shown, and the footer no longer
+repeats it. `App.expandedHeight`'s error branch likewise now requires
+`blocksHeight <= 0`.
 
-### 状态栏 / 托盘图标
+### Menu bar / tray icon
 
-macOS 侧原来是 SF Symbol `sun.max`，现已换成 `statusSunImage()` 画的真太阳：
-只画身体 + 9 根光芒（18pt 下脸和渐变都糊成一团），有会话在跑时以 12fps 转动、
-空闲停下并回正。**不能用模板图**——那会被系统涂成纯黑白，珊瑚色就没了；
-珊瑚是中间调，浅色和深色菜单栏上都验证过看得见。
+On macOS this was the SF Symbol `sun.max`; it is now a real sun drawn by
+`statusSunImage()` — body plus nine rays only, because at 18 pt the face and the
+gradients turn to mush. It rotates at 12 fps while a session is running, and
+stops and returns to true when idle. **A template image cannot be used** — the
+system would paint it flat black and white, losing the coral entirely. Coral is a
+mid-tone, and has been checked as visible on both light and dark menu bars.
 
-Windows 侧托盘**左键**改成 `BringToFront()`（只把窗口调到前面）。
-之前直接调 `EnsureVisible()`，点一下桌宠就瞬移到右下角**并把新坐标写进配置**，
-用户摆好的位置就这么没了，重启也回不来。移位现在只由菜单里那一条显式触发。
+On Windows, **left-clicking the tray icon** now calls `BringToFront()`, which only
+raises the window. It used to call `EnsureVisible()`, so a single click teleported
+the pet to the bottom-right **and wrote the new position to the config file** —
+losing wherever the user had put it, permanently, restart included. Repositioning
+is now triggered only by the explicit menu item.
 
-### 刷新光波已删除
+### The refresh ripple has been removed
 
-原先每次取到新数据会从太阳荡出一圈涟漪。两个问题：在收起态它的半径
-（`max(宽,高)×0.62 = 54.6`）超过 88pt 窗口的内切半径 44，被切成四段角弧；
-而且用户观感上它只是"莫名其妙有东西射出来"。整套（`rippleStart` /
-`lastSeenFetch` / `drawRefreshRipple`）两个平台都已移除。
+Each new fetch used to send a ripple out from the sun. Two problems: folded, its
+radius (`max(w,h)×0.62 = 54.6`) exceeded the 88 pt window's inscribed radius of
+44 and was cut into four corner arcs; and to a user it simply read as "something
+inexplicably shooting out". The whole thing (`rippleStart` / `lastSeenFetch` /
+`drawRefreshRipple`) is gone from both platforms.
 
-## 七、当前状态与待办
+## 7. Current state and outstanding work
 
-### 已经查过并修掉的
+### Found and fixed
 
-跑过一轮四角度的回归排查（含逐条对抗验证），确认并修复：
+A four-angle regression sweep (with per-finding adversarial verification)
+confirmed and fixed:
 
-- 等待输入时玻璃暖色染色不生效（`applyGlassShape` 在「尺寸变了才继续」的
-  guard 之后，而等待不改变尺寸）；且一旦被刷上就退不回去
-- 会话块顺序冻结在首次出现顺序，`ActivityWatcher` 排的「等你选的最前」失效
-- 刷新光波在收起态被切成四段角弧（已连同整个功能移除）
-- 悬停详情在过渡期被窗口下沿硬切
-- 后台探空达标时没清 `stalled`，方块一直写「无响应」而不是「未读·刚刚完成」
-  （本机真实记录：88 段后台运行有 10 段会踩到）
-- `bgStaleHits` 的自增在探测缓存门外，「连续两次探空」实际只隔 1.6 秒
-- Windows「降低透明度」时空闲态多出一个 88×88 深灰实心圆盘
-- Windows 托盘左键会把桌宠瞬移到右下角并写盘
+- The warm glass tint while waiting for input never applied (`applyGlassShape`
+  sat after the "only continue if the size changed" guard, and waiting does not
+  change the size); and once applied it could not be undone.
+- Session block order was frozen at first appearance, defeating
+  `ActivityWatcher`'s ordering of "waiting for you" to the top.
+- The refresh ripple was cut into four corner arcs when folded (removed entirely
+  along with the feature).
+- The hover detail was clipped hard by the window's lower edge during the transition.
+- `stalled` was not cleared when the background probe expired, so the block kept
+  saying "not responding" instead of "unread · just finished" (in this machine's
+  real transcripts, 10 of 88 background runs hit this).
+- `bgStaleHits` was incremented outside the probe cache guard, so "two consecutive
+  empty probes" were in fact only 1.6 s apart.
+- On Windows with Reduce Transparency, an 88×88 dark grey disc appeared behind
+  the idle state.
+- On Windows, a left-click on the tray icon teleported the pet to the
+  bottom-right and wrote that to disk.
 
-两平台的 15 项造型/行为常量已逐个比对，全部一致。
+The fifteen shape and behaviour constants have been compared across both
+platforms and all agree.
 
-### 仍未验证
+### Still unverified
 
-- `dist/Sundial.zip` 是 ad-hoc 签名的 `share` 产物，**未公证**
-  （只有免费的 Apple Development 证书，签不了 Developer ID）。
-- macOS：VoiceOver 实际朗读、Intel 机器、macOS 13/14/15 都没有实机跑过。
-- Windows：**登录对话框已在真机验证**（照片确认：授权页、粘贴框、
-  重新打开授权页都正常）。但托盘图标与右键菜单、注册表开机自启、
-  Windows 11 亚克力模糊仍未逐项验证。
-- `src-windows/tests/Sundial.Tests` 目录建了但还是空的。这一轮验证用的断言
-  都散在临时脚本里，跑完就没了；Core 层能在 Mac 上跑测试，值得固化下来——
-  否则两边同步全靠手工比对（这次就差点漏掉常量漂移）。
+- `dist/Sundial.zip` is an ad-hoc signed `share` build and is **not notarised**
+  (only a free Apple Development certificate is available, which cannot produce a
+  Developer ID signature).
+- macOS: VoiceOver actually speaking the interface, Intel hardware, and macOS
+  13/14/15 have none of them been run on real machines.
+- Windows: **the sign-in dialogue has been verified on real hardware** (confirmed
+  by photograph: the authorisation page, the paste box, and reopening the
+  authorisation page all behaved). The tray icon and its menu, launch-at-login via
+  the registry, and Windows 11 acrylic blur remain unverified item by item.
+- `src-windows/tests/Sundial.Tests` exists but is still empty. The assertions used
+  for this round of verification lived in throwaway scripts and are gone. The core
+  layer can be tested on a Mac, and that is worth making permanent — otherwise
+  keeping the two platforms in step depends on comparing by hand, which nearly
+  missed a constant drifting this time.
