@@ -21,3 +21,7 @@ src/Sundial.icns
 
 # macOS
 .DS_Store
+
+# 你自己的视频工作目录，不进仓库
+视频/
+*.mp4
