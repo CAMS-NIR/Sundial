@@ -110,7 +110,7 @@ public sealed class App : Application
             {
                 if (verifier is not { } v)
                 {
-                    return new LoginOutcome(false, "登录流程状态丢失，请重新点一次登录。");
+                    return new LoginOutcome(false, "The sign-in flow lost its state. Please start it again.");
                 }
                 try
                 {
@@ -123,7 +123,7 @@ public sealed class App : Application
                     verifier = null;                  // only swap in a new one once it has succeeded
                     return new LoginOutcome(true, saved
                         ? null
-                        : "登录成功，但令牌没能存到本机，下次启动可能需要重新登录。");
+                        : "Signed in, but the token could not be saved locally. You may have to sign in again next time.");
                 }
                 catch (Exception ex)
                 {
@@ -194,7 +194,7 @@ public sealed class App : Application
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"[Sundial] 托盘图标加载失败：{ex.Message}");
+            System.Diagnostics.Debug.WriteLine($"[Sundial] Failed to load the tray icon: {ex.Message}");
             return null;
         }
     }

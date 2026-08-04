@@ -227,7 +227,7 @@ public sealed class MainWindow : Window
         // see accessibilityChildren); that whole set of AutomationPeers hasn't been ported over
         // here yet. At the very least, announce the window's own name, matching the original's
         // accessibilityLabel "Claude usage and session status".
-        AutomationProperties.SetName(this, "Claude 用量与会话状态");
+        AutomationProperties.SetName(this, "Claude usage and session activity");
         SystemDecorations = SystemDecorations.None;   // Borderless: the whole window is that sun
         Background = Brushes.Transparent;             // Outside the rounded corners it must be genuinely transparent, or a black/white square shows through
         Topmost = true;
@@ -495,7 +495,7 @@ public sealed class MainWindow : Window
         {
             // An exception from the data layer must not take the pet down with it: its job is to
             // write the error into PetModel.ErrorMsg itself
-            Debug.WriteLine($"[Sundial] 数据钩子异常：{ex}");
+            Debug.WriteLine($"[Sundial] Data hook threw: {ex}");
         }
     }
 
@@ -813,22 +813,22 @@ public sealed class MainWindow : Window
         // first thing you can ask is "what does the menu say?"
         new MenuEntry($"Sundial {AppVersion}", Enabled: () => false),
         new MenuEntry("", IsSeparator: true),
-        new MenuEntry("登录 Claude 账号…", StartLogin,
-            DynamicText: () => LoggedIn ? "重新登录 Claude 账号…" : "登录 Claude 账号…"),
-        new MenuEntry("退出登录", SignOut, Enabled: () => LoggedIn),
+        new MenuEntry("Sign in to Claude account…", StartLogin,
+            DynamicText: () => LoggedIn ? "Sign in to Claude account again…" : "Sign in to Claude account…"),
+        new MenuEntry("Sign out", SignOut, Enabled: () => LoggedIn),
         new MenuEntry("", IsSeparator: true),
-        new MenuEntry("立即刷新", () => ForceRefreshRequested?.Invoke()),
+        new MenuEntry("Refresh now", () => ForceRefreshRequested?.Invoke()),
         // An equivalent entry point besides hovering: you can look at the details without keeping
         // the mouse parked on the window
-        new MenuEntry("固定展开用量明细", ToggleDetails, Checked: () => _model.DetailsPinned),
-        new MenuEntry("打开网页版用量", () => OpenUrl("https://claude.ai/settings/usage")),
-        new MenuEntry("把桌宠移回屏幕右下角", EnsureVisible),
+        new MenuEntry("Keep usage breakdown open", ToggleDetails, Checked: () => _model.DetailsPinned),
+        new MenuEntry("Open the web usage page", () => OpenUrl("https://claude.ai/settings/usage")),
+        new MenuEntry("Bring the pet back to the bottom-right", EnsureVisible),
         new MenuEntry("", IsSeparator: true),
-        new MenuEntry("系统模糊背景（实验）", ToggleSystemBlur, Checked: () => _settings.SystemBlur),
-        new MenuEntry("开机自动启动", ToggleAutostart, Checked: () => AutoStart.IsEnabled,
+        new MenuEntry("System blur background (experimental)", ToggleSystemBlur, Checked: () => _settings.SystemBlur),
+        new MenuEntry("Launch at login", ToggleAutostart, Checked: () => AutoStart.IsEnabled,
             Enabled: () => OperatingSystem.IsWindows()),
         new MenuEntry("", IsSeparator: true),
-        new MenuEntry("退出 Sundial", QuitApp),
+        new MenuEntry("Quit Sundial", QuitApp),
     };
 
     private bool LoggedIn => HasTokenProvider?.Invoke() ?? false;
@@ -977,7 +977,7 @@ public sealed class MainWindow : Window
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"[Sundial] 打开链接失败：{ex.Message}");
+            Debug.WriteLine($"[Sundial] Failed to open the link: {ex.Message}");
         }
     }
 
@@ -1001,7 +1001,7 @@ public sealed class MainWindow : Window
         _model.NeedsLogin = true;
         _model.Rows = new List<UsageRow>();
         _model.Tier = "";
-        _model.ErrorMsg = "已退出登录\n双击我重新登录";
+        _model.ErrorMsg = "Signed out\nDouble-click me to sign in again";
         _model.Asleep = true;
         _model.Loading = false;
         NotifyModelChanged();
@@ -1074,14 +1074,14 @@ public sealed class MainWindow : Window
         try
         {
             outcome = ExchangeCodeAsync is null
-                ? new LoginOutcome(false, "登录模块没有接上。")
+                ? new LoginOutcome(false, "The sign-in module is not wired up.")
                 : await ExchangeCodeAsync(pasted);
         }
         catch (Exception ex)
         {
             // By convention the hook shouldn't throw, and even if it does the pet mustn't die
             // along with it
-            Debug.WriteLine($"[Sundial] 换取令牌失败：{ex}");
+            Debug.WriteLine($"[Sundial] Token exchange failed: {ex}");
             outcome = new LoginOutcome(false, ex.Message);
         }
 
@@ -1101,7 +1101,7 @@ public sealed class MainWindow : Window
                 _model.NeedsLogin = true;
                 _model.Rows = new List<UsageRow>();   // Without clearing it the login card and button don't get rendered
                 _model.Tier = "";
-                _model.ErrorMsg = "登录失败\n双击我重试";
+                _model.ErrorMsg = "Sign-in failed\nDouble-click me to retry";
                 _model.Asleep = true;
             }
         }
@@ -1113,7 +1113,7 @@ public sealed class MainWindow : Window
         // they are left with is "it failed again"
         if (!string.IsNullOrEmpty(outcome.Message))
         {
-            ShowNotice(outcome.Ok ? "提示" : "登录失败", outcome.Message!);
+            ShowNotice(outcome.Ok ? "Notice" : "Sign-in failed", outcome.Message!);
         }
     }
 
@@ -1161,7 +1161,7 @@ public sealed class MainWindow : Window
         {
             _onDone = onDone;
 
-            Title = "连接 Claude 账号";
+            Title = "Connect your Claude account";
             Width = 460;
             SizeToContent = SizeToContent.Height;
             CanResize = false;
@@ -1171,7 +1171,7 @@ public sealed class MainWindow : Window
 
             _input = new TextBox
             {
-                Watermark = "在此粘贴授权码",
+                Watermark = "Paste the authorisation code here",
                 AcceptsReturn = false,
                 MinWidth = 300,
             };
@@ -1179,10 +1179,10 @@ public sealed class MainWindow : Window
             // The authorisation page was already opened for the user before this box popped up
             // (see StartLogin); this button is the fallback: if the default browser isn't set up
             // properly, or the user's hand slipped and closed the tab, it can be opened again
-            var openBtn = new Button { Content = "重新打开授权页" };
+            var openBtn = new Button { Content = "Reopen the authorisation page" };
             openBtn.Click += (_, _) => OpenUrl(authorizeUrl);
 
-            var pasteBtn = new Button { Content = "粘贴" };
+            var pasteBtn = new Button { Content = "Paste" };
             pasteBtn.Click += async (_, _) =>
             {
                 var clip = Clipboard;   // The clipboard that comes with TopLevel; no need to go hunting for a TopLevel
@@ -1191,10 +1191,10 @@ public sealed class MainWindow : Window
                 if (!string.IsNullOrWhiteSpace(text)) _input.Text = text.Trim();
             };
 
-            var okBtn = new Button { Content = "完成登录", IsDefault = true };
+            var okBtn = new Button { Content = "Finish signing in", IsDefault = true };
             okBtn.Click += (_, _) => Finish(_input.Text);
 
-            var cancelBtn = new Button { Content = "取消", IsCancel = true };
+            var cancelBtn = new Button { Content = "Cancel", IsCancel = true };
             cancelBtn.Click += (_, _) => Finish(null);
 
             Content = new StackPanel
@@ -1205,10 +1205,10 @@ public sealed class MainWindow : Window
                 {
                     new TextBlock
                     {
-                        Text = "浏览器已打开 Claude 授权页面，请在浏览器里登录并点击授权。\n"
-                             + "授权后把页面给出的授权码粘贴到下面（直接复制浏览器地址栏也行）。\n\n"
-                             + "注意：如果浏览器里还留着以前的授权页，请用刚打开的这一页，"
-                             + "旧页面上的码是无效的。",
+                        Text = "Your browser has opened Claude's authorisation page. Sign in there and approve.\n"
+                             + "Then paste the code it gives you below (the whole address-bar URL works too).\n\n"
+                             + "Note: if an older authorisation page is still open, use the one that has just "
+                             + "opened — a code from the old page will not work.",
                         TextWrapping = TextWrapping.Wrap,
                     },
                     openBtn,
@@ -1274,7 +1274,7 @@ public sealed class MainWindow : Window
 
             var ok = new Button
             {
-                Content = "好",
+                Content = "OK",
                 IsDefault = true,
                 IsCancel = true,
                 HorizontalAlignment = HorizontalAlignment.Right,
@@ -1314,7 +1314,7 @@ public sealed class MainWindow : Window
         // exception). On corporate machines HKCU\...\Run is often locked down by group policy, and
         // if it fails silently what the user sees is "I ticked it, it didn't tick, and nobody told
         // me why"
-        if (err is not null) ShowNotice("设置失败", "无法修改开机自启设置：" + err);
+        if (err is not null) ShowNotice("Setting failed", "Could not change the launch-at-login setting: " + err);
     }
 
     // MARK: Appearance and accessibility
@@ -1363,7 +1363,7 @@ public sealed class MainWindow : Window
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"[Sundial] 读系统配色偏好失败：{ex.Message}");
+            Debug.WriteLine($"[Sundial] Could not read the system colour preference: {ex.Message}");
         }
 
         var reduceMotion = SystemA11y.ReduceMotion;
@@ -1405,7 +1405,7 @@ public sealed class MainWindow : Window
         {
             // Failure only means "clicking it steals focus for a moment", which isn't worth
             // crashing over
-            Debug.WriteLine($"[Sundial] 设置 WS_EX_NOACTIVATE 失败：{ex.Message}");
+            Debug.WriteLine($"[Sundial] Could not set WS_EX_NOACTIVATE: {ex.Message}");
         }
     }
 
@@ -1434,7 +1434,7 @@ public sealed class MainWindow : Window
                 }
                 catch (Exception ex)
                 {
-                    Debug.WriteLine($"[Sundial] 读动画偏好失败：{ex.Message}");
+                    Debug.WriteLine($"[Sundial] Could not read the animation preference: {ex.Message}");
                     return false;
                 }
             }
@@ -1455,7 +1455,7 @@ public sealed class MainWindow : Window
                 }
                 catch (Exception ex)
                 {
-                    Debug.WriteLine($"[Sundial] 读透明度偏好失败：{ex.Message}");
+                    Debug.WriteLine($"[Sundial] Could not read the transparency preference: {ex.Message}");
                     return false;
                 }
             }
@@ -1490,7 +1490,7 @@ public sealed class MainWindow : Window
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"[Sundial] 取光标位置失败：{ex.Message}");
+                Debug.WriteLine($"[Sundial] Could not read the cursor position: {ex.Message}");
                 return false;
             }
         }
@@ -1546,7 +1546,7 @@ public sealed class MainWindow : Window
                 }
                 catch (Exception ex)
                 {
-                    Debug.WriteLine($"[Sundial] 读开机自启失败：{ex.Message}");
+                    Debug.WriteLine($"[Sundial] Could not read the launch-at-login setting: {ex.Message}");
                     return false;
                 }
             }
@@ -1560,7 +1560,7 @@ public sealed class MainWindow : Window
             try
             {
                 using var key = Registry.CurrentUser.CreateSubKey(RunKey, writable: true);
-                if (key is null) return "打不开注册表项 HKCU\\" + RunKey + "。";
+                if (key is null) return "Could not open the registry key HKCU\\" + RunKey + "。";
                 if (!on)
                 {
                     key.DeleteValue(ValueName, throwOnMissingValue: false);
@@ -1570,7 +1570,7 @@ public sealed class MainWindow : Window
                 // publishing too); Assembly.Location can't be used — with single-file publishing
                 // it is an empty string, and writing that in gives you a dead entry.
                 var exe = Environment.ProcessPath;
-                if (string.IsNullOrEmpty(exe)) return "取不到本程序的可执行文件路径。";
+                if (string.IsNullOrEmpty(exe)) return "Could not determine this program's executable path.";
                 // The path almost certainly contains spaces (Program Files / the user name), and
                 // without quotes it gets split into two arguments
                 key.SetValue(ValueName, "\"" + exe + "\"");
@@ -1578,7 +1578,7 @@ public sealed class MainWindow : Window
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"[Sundial] 写开机自启失败：{ex.Message}");
+                Debug.WriteLine($"[Sundial] Could not write the launch-at-login setting: {ex.Message}");
                 return ex.Message;
             }
         }
@@ -1634,7 +1634,7 @@ internal sealed class ShellSettings
         {
             // A corrupt settings file is treated as no file at all: the pet has to be able to
             // start, and at worst losing the position means going back to the default corner
-            Debug.WriteLine($"[Sundial] 读配置失败：{ex.Message}");
+            Debug.WriteLine($"[Sundial] Could not read the settings file: {ex.Message}");
         }
         return s;
     }
@@ -1655,7 +1655,7 @@ internal sealed class ShellSettings
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"[Sundial] 写配置失败：{ex.Message}");
+            Debug.WriteLine($"[Sundial] Could not write the settings file: {ex.Message}");
         }
     }
 }

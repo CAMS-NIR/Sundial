@@ -1,13 +1,13 @@
-# GitHub 会读这个文件，在仓库页面顶部显示一个 Sponsor 按钮。
+# GitHub reads this file and shows a Sponsor button at the top of the repository page.
 #
-# github: 指向你自己的账号。**必须先到 github.com/sponsors 开通**，
-# 否则按钮不会出现。另外 GitHub Sponsors 目前不支持中国大陆收款
-# （需要 Stripe Connect），所以这一条对你多半用不上。
+# github: points at the owner's own account. You must enrol at github.com/sponsors
+# first, or the button never appears. Note also that GitHub Sponsors cannot currently
+# receive payments in mainland China (it requires Stripe Connect).
 #
-# 下面几条按你实际开通的填，没有就删掉整行——**不要填别人的用户名**。
-# custom 可以放任意链接，爱发电就走这里。
+# Fill in whichever of the following you have actually set up, and delete the rest.
+# Never put someone else's handle here. custom takes any URL.
 
 github: CAMS-NIR
 # ko_fi:
 # buy_me_a_coffee:
-# custom: ["https://afdian.com/a/你的用户名"]
+# custom: ["https://afdian.com/a/YOUR-NAME"]

@@ -8,7 +8,7 @@
 //   swiftc -O main.swift <repo>/src/{PetView,Theme,Model,Activity,Usage,Auth}.swift -o gifgen
 //   ./gifgen demo.gif             # light GIF
 //   ./gifgen demo-dark.gif dark   # dark GIF
-//   ./gifgen 竖屏.mp4              # portrait video (1080×1920, 60fps)
+//   ./gifgen portrait.mp4              # portrait video (1080×1920, 60fps)
 //
 // When the output is a .mp4 it switches to a portrait video automatically: a GIF cannot carry "big and long and
 // high refresh rate" all at once — each of the three multiplies the file size directly; H.264 does not have that
@@ -49,17 +49,17 @@ let dodge = CommandLine.arguments.contains("dodge")
 /// it is smaller than Fable.
 func demoRows() -> [UsageRow] {
     [
-        UsageRow(label: "5 小时", percent: 21,
+        UsageRow(label: "5 hours", percent: 21,
                  resetAt: Date().addingTimeInterval(66 * 60), priority: 0),
-        UsageRow(label: "每周 · 全部模型", percent: 12,
+        UsageRow(label: "Weekly · all models", percent: 12,
                  resetAt: Date().addingTimeInterval(3 * 86400), priority: 1),
-        UsageRow(label: "每周 · Fable", percent: 21,
+        UsageRow(label: "Weekly · Fable", percent: 21,
                  resetAt: Date().addingTimeInterval(3 * 86400 - 10000), priority: 2),
     ]
 }
 
 func demoSession(elapsed: TimeInterval) -> SessionActivity {
-    SessionActivity(id: "demo", title: "示例会话", busy: true, waiting: false,
+    SessionActivity(id: "demo", title: "Example session", busy: true, waiting: false,
                     since: Date().addingTimeInterval(-elapsed), unread: false,
                     finishedAt: nil, ctxTokens: 393_000, ctxLimit: 1_000_000)
 }
@@ -481,7 +481,7 @@ func solveBreath() {
     // take the whole-number multiple that is reachable inside the interval
     let target = (gLo / twoPi).rounded(.up) * twoPi
     guard target <= gHi else {
-        print(String(format: "  呼吸：区间 [%.2f, %.2f] 内没有可达的 2π 整数倍（净增量 %.3f–%.3f），保持默认",
+        print(String(format: "  breath: no reachable multiple of 2pi in [%.2f, %.2f] (net gain %.3f-%.3f); keeping the default",
                      lo, hi, gLo, gHi))
         sessionEnd = 9.50
         return
@@ -494,7 +494,7 @@ func solveBreath() {
     sessionEnd = (lo + hi) / 2
     let g = breathGain()
     let residual = abs(g - (g / twoPi).rounded() * twoPi)
-    print(String(format: "  呼吸：会话结束点 %.4f 秒，净增量 %.4f rad = %.3f 圈，残差 %.2e rad",
+    print(String(format: "  breath: session ends at %.4fs, net gain %.4f rad = %.3f turns, residual %.2e rad",
                  sessionEnd, g, g / twoPi, residual))
 }
 // In dodge mode it is asleep the whole way through, the breathing rate is a constant 1.0 rad/s, the "how long it
@@ -525,7 +525,7 @@ if let f0 = firstPetRep, let d = f0.bitmapData {
     for i in 0..<(f0.bytesPerRow * f0.pixelsHigh) {
         h = (h ^ UInt64(d[i])) &* 1099511628211
     }
-    print(String(format: "  第 0 帧指纹 %016llx（%d×%d）", h, f0.pixelsWide, f0.pixelsHigh))
+    print(String(format: "  frame 0 fingerprint %016llx (%dx%d)", h, f0.pixelsWide, f0.pixelsHigh))
 }
 
 // Self-check: the frame after the last frame should be exactly identical to frame 0 — that is what joining up means.
@@ -556,7 +556,7 @@ if let seamRep = scene.petBitmap(scale: 1) {
             }
             base = Double(s2) / Double(n / 4 * 3)
         }
-        print(String(format: "  接缝 %.4f/255；相邻帧基准 %.4f/255（比值 %.2f×）",
+        print(String(format: "  seam %.4f/255; adjacent-frame baseline %.4f/255 (ratio %.2fx)",
                      seam, base, seam / base))
     }
 }
@@ -572,7 +572,7 @@ try? FileManager.default.removeItem(at: url)
 
 if isVideo {
     guard let writer = try? AVAssetWriter(outputURL: url, fileType: .mp4) else {
-        fail("无法创建视频写入器")
+        fail("could not create the video writer")
     }
     let input = AVAssetWriterInput(mediaType: .video, outputSettings: [
         AVVideoCodecKey: AVVideoCodecType.h264,
@@ -604,10 +604,10 @@ if isVideo {
     let scaleT = CMTimeScale(600)
     for (i, cg) in frames.enumerated() {
         while !input.isReadyForMoreMediaData { usleep(2000) }
-        guard let pool = adaptor.pixelBufferPool else { fail("拿不到像素缓冲池") }
+        guard let pool = adaptor.pixelBufferPool else { fail("no pixel buffer pool") }
         var pb: CVPixelBuffer?
         CVPixelBufferPoolCreatePixelBuffer(nil, pool, &pb)
-        guard let buf = pb else { fail("分配像素缓冲失败") }
+        guard let buf = pb else { fail("could not allocate a pixel buffer") }
         CVPixelBufferLockBaseAddress(buf, [])
         if let c = CGContext(data: CVPixelBufferGetBaseAddress(buf),
                              width: Int(pixelSize.width), height: Int(pixelSize.height),
@@ -627,11 +627,11 @@ if isVideo {
     let done = DispatchSemaphore(value: 0)
     writer.finishWriting { done.signal() }
     done.wait()
-    if writer.status != .completed { fail("视频写入失败：\(writer.error?.localizedDescription ?? "?")") }
+    if writer.status != .completed { fail("video write failed: \(writer.error?.localizedDescription ?? "?")") }
 } else {
     guard let dest = CGImageDestinationCreateWithURL(
             url as CFURL, UTType.gif.identifier as CFString, frames.count, nil) else {
-        fail("无法创建 GIF")
+        fail("could not create the GIF")
     }
     CGImageDestinationSetProperties(dest, [
         kCGImagePropertyGIFDictionary: [kCGImagePropertyGIFLoopCount: 0]
@@ -641,9 +641,9 @@ if isVideo {
         kCGImagePropertyGIFUnclampedDelayTime: gifDelay,
     ]] as CFDictionary
     for f in frames { CGImageDestinationAddImage(dest, f, props) }
-    if !CGImageDestinationFinalize(dest) { fail("GIF 写入失败") }
+    if !CGImageDestinationFinalize(dest) { fail("GIF write failed") }
 }
 
 let mb = (try? FileManager.default.attributesOfItem(atPath: outPath)[.size] as? Int) ?? 0
-print("✓ \(frames.count) 帧 · \(Int(fps))fps · \(Int(pixelSize.width))×\(Int(pixelSize.height)) px"
+print("✓ \(frames.count) frames · \(Int(fps))fps · \(Int(pixelSize.width))x\(Int(pixelSize.height)) px"
       + " · \(String(format: "%.1f", Double(mb ?? 0) / 1_048_576))MB · \(outPath)")

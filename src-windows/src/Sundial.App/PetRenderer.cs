@@ -109,7 +109,7 @@ public sealed class PetRenderer
         // A long label such as "Weekly · All models" is cut down to its first segment; 198pt of width can't fit the whole thing
         var idx = label.IndexOf(" · ", StringComparison.Ordinal);
         var shortLabel = idx > 0 ? label[..idx] : label;
-        return $"{shortLabel} · {Usage.CompactReset(best)} 后解封";
+        return $"{shortLabel} · resets in {Usage.CompactReset(best)}";
     }
 
     /// <summary>The height taken by the reset line; 0 when it isn't drawn. The window height has to account for it.</summary>
@@ -535,7 +535,7 @@ public sealed class PetRenderer
 
         if (_model.Loading)
         {
-            Theme.DrawText(ctx, "正在获取用量…", new Rect(card.X, y + 6, card.Width, 16),
+            Theme.DrawText(ctx, "Fetching usage…", new Rect(card.X, y + 6, card.Width, 16),
                            11, FontWeight.Normal, Theme.SecondaryLabelColor, TextAlignment.Center);
             return;
         }
@@ -554,7 +554,7 @@ public sealed class PetRenderer
                 var btn = new Rect(cardMidX - 60, y + 52, 120, 30);
                 _loginButtonRect = btn;
                 ctx.DrawRectangle(new SolidColorBrush(Theme.CoralDeep), null, btn, 13, 13);
-                Theme.DrawText(ctx, "双击登录", new Rect(btn.X, btn.Y + 6, btn.Width, 16),
+                Theme.DrawText(ctx, "Double-click to sign in", new Rect(btn.X, btn.Y + 6, btn.Width, 16),
                                11, FontWeight.SemiBold, Colors.White, TextAlignment.Center);
             }
             return;
@@ -838,9 +838,9 @@ public sealed class PetRenderer
     private static string WeeklyShortName(UsageRow? row)
     {
         var l = row?.Label;
-        if (l is null) return "每周";
-        if (l.Contains("全部模型")) return "每周";
-        return l.Replace("每周 · ", "");
+        if (l is null) return "Weekly";
+        if (l.Contains("all models")) return "Weekly";
+        return l.Replace("Weekly · ", "");
     }
 
     // MARK: The two side-by-side gauges (proportion used)
@@ -854,7 +854,7 @@ public sealed class PetRenderer
         // left gauge — sun — right gauge, centred and evenly spaced in thirds
         var gauges = new (UsageRow? Row, string Name, double Cx)[]
         {
-            (ringOuter, "5小时", card.X + card.Width * 0.17),
+            (ringOuter, "5 hours", card.X + card.Width * 0.17),
             (ringInner, WeeklyShortName(ringInner), card.Right - card.Width * 0.17),
         };
         for (int k = 0; k < gauges.Length; k++)
@@ -963,28 +963,28 @@ public sealed class PetRenderer
         if (s.Waiting)
         {
             var el = Format.Elapsed(s.Since);
-            sub = el.Length == 0 ? "等你选择" : $"等你选择 · {el}";
+            sub = el.Length == 0 ? "Waiting for you" : $"Waiting for you · {el}";
             subColor = Theme.LabelColor;        // grabbing attention is the breathing dot on the right's job; the text just has to stay readable
         }
         else if (s.Background)
         {
             var el = Format.Elapsed(s.Since);
-            sub = el.Length == 0 ? "后台任务运行中" : $"后台任务 · {el}";
+            sub = el.Length == 0 ? "Background task running" : $"Background task · {el}";
         }
         else if (s.Busy)
         {
             var el = Format.Elapsed(s.Since);
-            sub = el.Length == 0 ? "正在思考" : $"正在思考 · {el}";
+            sub = el.Length == 0 ? "Thinking" : $"Thinking · {el}";
         }
         else if (s.Stalled)
         {
             // It's just that there has been no new log entry for a long while; we don't know whether it finished, so don't falsely claim it is done
             var el = Format.Elapsed(s.FinishedAt);
-            sub = el.Length == 0 ? "无响应" : $"无响应 · 已 {el} 无更新";
+            sub = el.Length == 0 ? "Not responding" : $"Not responding · no update for {el}";
         }
         else
         {
-            sub = "未读 · " + Format.Ago(s.FinishedAt);
+            sub = "Unread · " + Format.Ago(s.FinishedAt);
         }
         Theme.DrawText(ctx, sub, new Rect(box.X + 10, box.Y + 18, box.Width - 40, 13),
                        9, s.Waiting ? FontWeight.SemiBold : FontWeight.Normal, subColor);
@@ -1000,7 +1000,7 @@ public sealed class PetRenderer
             var barX = box.X + 10;
             var barW = box.Width - 20;
 
-            Theme.DrawText(ctx, $"上下文 {Format.Tokens(s.CtxTokens)} / {Format.Tokens(s.CtxLimit)}",
+            Theme.DrawText(ctx, $"Context {Format.Tokens(s.CtxTokens)} / {Format.Tokens(s.CtxLimit)}",
                            new Rect(barX, barY - 12, barW - 30, 11),
                            9.5, FontWeight.Normal, Theme.LabelColor);
             Theme.DrawText(ctx, $"{pct}%", new Rect(barX + barW - 30, barY - 12, 30, 11),
@@ -1067,7 +1067,7 @@ public sealed class PetRenderer
         var innerW = card.Width - 26;
         var y = startY;
 
-        Theme.DrawText(ctx, "Claude 用量", new Rect(innerX, y, innerW * 0.6, 13),
+        Theme.DrawText(ctx, "Claude usage", new Rect(innerX, y, innerW * 0.6, 13),
                        9.5, FontWeight.SemiBold, Theme.LabelColor);
         if (_model.Tier.Length > 0)
         {
@@ -1084,7 +1084,7 @@ public sealed class PetRenderer
         var (shownOuter, shownInner) = _model.RingRows;
         if (_model.Rows.Count == 0)
         {
-            Theme.DrawText(ctx, _model.NeedsLogin ? "未登录，只显示会话状态" : "暂时取不到用量",
+            Theme.DrawText(ctx, _model.NeedsLogin ? "Not signed in — session activity only" : "Usage unavailable",
                            new Rect(innerX, y, innerW, 14),
                            9.5, FontWeight.Normal, Theme.SecondaryLabelColor);
             y += 15;
@@ -1096,12 +1096,12 @@ public sealed class PetRenderer
                   : Sundial.App.Theme.TertiaryLabelColor;
             // The original set a 6×6 circle as the clip region here and then filled the same circle, which is equivalent to just drawing a solid dot
             ctx.DrawEllipse(new SolidColorBrush(c), null, new Point(innerX + 3, y + 7), 3, 3);
-            Theme.DrawText(ctx, row.Label, new Rect(innerX + 11, y, innerW - 11 - 96, 14),
+            Theme.DrawText(ctx, row.Label, new Rect(innerX + 11, y, innerW - 11 - 81, 14),
                            9.5, FontWeight.Normal, Theme.SecondaryLabelColor);
             // The numbers no longer change colour with usage: colour no longer carries the "how full" information
-            Theme.DrawText(ctx, $"{row.Percent}%", new Rect(innerX + innerW - 96, y, 40, 14),
+            Theme.DrawText(ctx, $"{row.Percent}%", new Rect(innerX + innerW - 81, y, 34, 14),
                            9.5, FontWeight.Medium, Theme.LabelColor, TextAlignment.Right, monoDigits: true);
-            Theme.DrawText(ctx, Usage.CompactReset(row.ResetAt), new Rect(innerX + innerW - 54, y, 54, 14),
+            Theme.DrawText(ctx, Usage.CompactReset(row.ResetAt), new Rect(innerX + innerW - 47, y, 47, 14),
                            9.5, FontWeight.Normal, Theme.SecondaryLabelColor, TextAlignment.Right);
             y += 15;
         }
@@ -1114,7 +1114,7 @@ public sealed class PetRenderer
         else if (_model.LastFetch is { } last)
         {
             var mins = (int)(DateTimeOffset.Now - last).TotalMinutes;
-            footer = mins <= 0 ? "刚刚更新" : $"{mins} 分钟前更新";
+            footer = mins <= 0 ? "updated just now" : $"updated {mins} min ago";
         }
         else
         {

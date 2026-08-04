@@ -1,7 +1,7 @@
 using Sundial.Core;
 using System.Diagnostics;
 
-Console.WriteLine("=== 1. 上下文窗口映射 ===");
+Console.WriteLine("=== 1. Context-window mapping ===");
 foreach (var (m, want) in new (string, int)[] {
     ("claude-opus-4-8", 1_000_000), ("claude-opus-4-7", 1_000_000),
     ("claude-sonnet-4-6", 1_000_000), ("claude-opus-5", 1_000_000),
@@ -11,29 +11,29 @@ foreach (var (m, want) in new (string, int)[] {
     ("claude-opus-4-20250514", 200_000), ("claude-sonnet-4-20250514", 200_000) })
 {
     var got = ContextLimits.For(m);
-    Console.WriteLine($"  {(got == want ? "✓" : "✗ 错")} {m,-30} → {got:N0}");
+    Console.WriteLine($"  {(got == want ? "✓" : "✗")} {m,-30} → {got:N0}");
 }
 
-Console.WriteLine("\n=== 2. 用真实注册表 + 会话记录跑 ActivityWatcher ===");
+Console.WriteLine("\n=== 2. ActivityWatcher against the real registry and transcripts ===");
 var w = new ActivityWatcher();
 var sw = Stopwatch.StartNew();
 w.Poll();
 sw.Stop();
-Console.WriteLine($"  首次 Poll 耗时 {sw.ElapsedMilliseconds} ms（含冷启动深扫）");
+Console.WriteLine($"  first poll took {sw.ElapsedMilliseconds} ms (includes the cold deep scan)");
 var sessions = w.Sessions;
-Console.WriteLine($"  发现 {sessions.Count} 个活跃会话");
+Console.WriteLine($"  found {sessions.Count} live session(s)");
 foreach (var s in sessions)
 {
-    var pct = s.CtxLimit > 0 ? $"{100.0 * s.CtxTokens / s.CtxLimit:F0}%" : "未知";
-    Console.WriteLine($"    · 标题「{s.Title}」");
-    Console.WriteLine($"      忙={s.Busy} 等待={s.Waiting} 后台={s.Background} 失联={s.Stalled} 未读={s.Unread}");
-    Console.WriteLine($"      本轮起点={s.Since?.ToString("HH:mm:ss") ?? "(无)"}  已用时={Format.Elapsed(s.Since)}");
-    Console.WriteLine($"      上下文 {Format.Tokens(s.CtxTokens)} / {Format.Tokens(s.CtxLimit)} = {pct}");
+    var pct = s.CtxLimit > 0 ? $"{100.0 * s.CtxTokens / s.CtxLimit:F0}%" : "unknown";
+    Console.WriteLine($"    · title \"{s.Title}\"");
+    Console.WriteLine($"      busy={s.Busy} waiting={s.Waiting} background={s.Background} stalled={s.Stalled} unread={s.Unread}");
+    Console.WriteLine($"      turn started={s.Since?.ToString("HH:mm:ss") ?? "(none)"}  elapsed={Format.Elapsed(s.Since)}");
+    Console.WriteLine($"      context {Format.Tokens(s.CtxTokens)} / {Format.Tokens(s.CtxLimit)} = {pct}");
 }
 sw.Restart(); w.Poll(); sw.Stop();
-Console.WriteLine($"  第二次 Poll 耗时 {sw.ElapsedMilliseconds} ms（应该快很多）");
+Console.WriteLine($"  second poll took {sw.ElapsedMilliseconds} ms (should be much faster)");
 
-Console.WriteLine("\n=== 3. 用量接口解析（真实返回结构，数值是编的） ===");
+Console.WriteLine("\n=== 3. Usage endpoint parsing (real shape, invented numbers) ===");
 var json = """
 {"five_hour":{"limit_dollars":50,"remaining_dollars":32,"resets_at":"2026-07-31T16:00:00Z","used_dollars":18,"utilization":36},
  "seven_day":{"utilization":31,"resets_at":"2026-08-04T06:00:00Z"},
@@ -45,15 +45,15 @@ var json = """
             "scope":{"model":{"display_name":"Fable"}}}]}
 """;
 var parsed = Usage.ParseUsage(json);
-if (parsed is null) Console.WriteLine("  ✗ 解析失败");
+if (parsed is null) Console.WriteLine("  ✗ parse failed");
 else
 {
     foreach (var r in parsed.Value.Rows)
-        Console.WriteLine($"  · {r.Label,-18} {r.Percent,4}%   重置 {r.ResetAt?.ToLocalTime():MM-dd HH:mm}");
-    Console.WriteLine($"  套餐名 = 「{parsed.Value.Tier}」（接口没有这个字段，空是对的）");
+        Console.WriteLine($"  · {r.Label,-18} {r.Percent,4}%   resets {r.ResetAt?.ToLocalTime():MM-dd HH:mm}");
+    Console.WriteLine($"  plan = \"{parsed.Value.Tier}\" (the endpoint has no such field; empty is correct)");
     var over = parsed.Value.Rows.FirstOrDefault(r => r.Percent > 100);
-    Console.WriteLine(over is null ? "  ✗ 超限的 106% 被夹掉了" : $"  ✓ 超限如实显示：{over.Label} {over.Percent}%");
+    Console.WriteLine(over is null ? "  ✗ the 106% overrun was clamped" : $"  ✓ overrun shown honestly: {over.Label} {over.Percent}%");
     var bogus = parsed.Value.Rows.Where(r => r.Label.Contains("amber") || r.Label.Contains("tangelo")
-                                          || r.Label.Contains("额外")).ToList();
-    Console.WriteLine(bogus.Count == 0 ? "  ✓ 代号键与 extra_usage 都没被误认成限额" : $"  ✗ 混进了 {bogus.Count} 条");
+                                          || r.Label.Contains("extra")).ToList();
+    Console.WriteLine(bogus.Count == 0 ? "  ✓ neither the code-name keys nor extra_usage were mistaken for limits" : $"  ✗ {bogus.Count} bogus row(s) slipped in");
 }

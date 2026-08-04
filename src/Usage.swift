@@ -8,20 +8,20 @@ import Foundation
 
 func labelFor(key: String) -> (String, Int)? {
     let k = key.lowercased()
-    if k.contains("five_hour") || k == "session" { return ("5 小时", 0) }
+    if k.contains("five_hour") || k == "session" { return ("5 hours", 0) }
     if k == "seven_day" || k == "weekly" || k == "weekly_all" {
-        return ("每周 · 全部模型", 1)
+        return ("Weekly · all models", 1)
     }
-    if k.contains("fable") { return ("每周 · Fable", 2) }
-    if k.contains("mythos") { return ("每周 · Mythos", 2) }
-    if k.contains("opus") { return ("每周 · Opus", 3) }
-    if k.contains("sonnet") { return ("每周 · Sonnet", 4) }
-    if k.contains("cowork") { return ("每周 · Cowork", 5) }
-    if k.contains("routine") { return ("每周 · Routines", 6) }
+    if k.contains("fable") { return ("Weekly · Fable", 2) }
+    if k.contains("mythos") { return ("Weekly · Mythos", 2) }
+    if k.contains("opus") { return ("Weekly · Opus", 3) }
+    if k.contains("sonnet") { return ("Weekly · Sonnet", 4) }
+    if k.contains("cowork") { return ("Weekly · Cowork", 5) }
+    if k.contains("routine") { return ("Weekly · Routines", 6) }
     if k.contains("extra") || k.contains("overage") { return nil } // extra paid-for usage, not shown for now
     if k.contains("seven_day") {
         let name = k.replacingOccurrences(of: "seven_day_", with: "").capitalized
-        return ("每周 · \(name)", 7)
+        return ("Weekly · \(name)", 7)
     }
     return nil
 }
@@ -47,13 +47,13 @@ func parseResetDate(_ v: Any?) -> Date? {
 func compactReset(_ d: Date?) -> String {
     guard let d else { return "" }
     let secs = d.timeIntervalSinceNow
-    if secs <= 0 { return "即将" }
+    if secs <= 0 { return "soon" }
     if secs < 24 * 3600 {
         let h = Int(secs) / 3600, m = (Int(secs) % 3600) / 60
         return h > 0 ? "\(h)h\(m)m" : "\(m)m"
     }
     let fmt = DateFormatter()
-    fmt.locale = Locale(identifier: "zh_CN")
+    fmt.locale = Locale(identifier: "en_GB")   // pinned: the interface is English-only
     fmt.dateFormat = "EEE HH:mm"
     return fmt.string(from: d)
 }
@@ -343,18 +343,18 @@ final class UsageFetcher {
         } catch let e as OAuthError {
             // only sign out when the server has explicitly rejected the credentials; for network errors / rate limiting / 5xx always keep the token and retry later
             guard e.isCredentialRejection else {
-                fail("网络暂时不可用，稍后自动重试", sleep: true, retryAfter: 120)
+                fail("Network unavailable — retrying shortly", sleep: true, retryAfter: 120)
                 return
             }
             signOut()
-            needLogin("登录已失效\n双击我重新登录")
+            needLogin("Sign-in expired\nDouble-click me to sign in again")
             return
         } catch CredError.keychainDenied {
-            needLogin("钥匙串读取被拒\n双击我重试或重新登录")
+            needLogin("Keychain read refused\nDouble-click to retry or sign in")
             return
         } catch {
             // no CLI credentials / no claudeAiOauth / already expired — they all come down to "please sign in"
-            needLogin("未登录\n双击我登录 Claude 账号")
+            needLogin("Not signed in\nDouble-click to sign in")
             return
         }
 
@@ -379,12 +379,12 @@ final class UsageFetcher {
         // only once wait has returned successfully is it safe to read the captured variables (signal supplies the memory ordering)
         if sem.wait(timeout: .now() + 20) == .timedOut {
             task.cancel()
-            fail("请求超时，稍后自动重试", sleep: true, retryAfter: 90)
+            fail("Request timed out — retrying shortly", sleep: true, retryAfter: 90)
             return
         }
 
         if netError != nil {
-            fail("网络不可用，稍后自动重试", sleep: true, retryAfter: 90)
+            fail("Network unavailable — retrying shortly", sleep: true, retryAfter: 90)
             return
         }
         switch status {
@@ -392,7 +392,7 @@ final class UsageFetcher {
             refreshStreak = 0
             guard let data = resultData, let parsed = parseUsage(data),
                   !parsed.rows.isEmpty else {
-                fail("接口返回了看不懂的数据\n（Anthropic 可能改了格式）", sleep: true, retryAfter: 300)
+                fail("The endpoint returned data I could not read\n(Anthropic may have changed the format)", sleep: true, retryAfter: 300)
                 return
             }
             DispatchQueue.main.async {
@@ -423,27 +423,27 @@ final class UsageFetcher {
                     let renewed = try refreshToken(t)
                     guard commitToken(renewed, epoch: epoch) else { abandon(); return }
                     refreshStreak += 1
-                    fail("正在续期，马上重试", sleep: false,
+                    fail("Renewing — retrying now", sleep: false,
                          retryAfter: [30.0, 120.0, 600.0][refreshStreak - 1])
                 } catch let e as OAuthError where !e.isCredentialRejection {
-                    fail("网络暂时不可用，稍后自动重试", sleep: true, retryAfter: 120)
+                    fail("Network unavailable — retrying shortly", sleep: true, retryAfter: 120)
                 } catch {
                     signOut()
-                    needLogin("登录已失效\n双击我重新登录")
+                    needLogin("Sign-in expired\nDouble-click me to sign in again")
                 }
             } else if resolved.isOwn {
                 signOut()
-                needLogin("登录已失效\n双击我重新登录")
+                needLogin("Sign-in expired\nDouble-click me to sign in again")
             } else {
-                needLogin("未登录\n双击我登录 Claude 账号")
+                needLogin("Not signed in\nDouble-click to sign in")
             }
         case 403:
             // not enough permission (the scopes don't line up); refreshing won't fix it, so don't spin on it
-            fail("接口拒绝访问 (403)\n可尝试重新登录", sleep: true, retryAfter: 600)
+            fail("Endpoint refused access (403)\nTry signing in again", sleep: true, retryAfter: 600)
         case 429:
-            fail("接口限流中，稍后自动重试", sleep: false, retryAfter: 300)
+            fail("Endpoint rate-limited — retrying shortly", sleep: false, retryAfter: 300)
         default:
-            fail("接口错误 (\(status))，稍后自动重试", sleep: true, retryAfter: 180)
+            fail("Endpoint error (\(status)) — retrying shortly", sleep: true, retryAfter: 180)
         }
     }
 }

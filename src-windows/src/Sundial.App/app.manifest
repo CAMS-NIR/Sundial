@@ -2,8 +2,8 @@
 <assembly manifestVersion="1.0" xmlns="urn:schemas-microsoft-com:asm.v1">
   <assemblyIdentity version="1.0.0.0" name="Sundial.App"/>
 
-  <!-- 按显示器各自的缩放渲染。不声明的话高分屏上整个窗口会被系统拉伸，
-       太阳和文字都会糊 -->
+  <!-- Render at each monitor's own scale factor. Without this declaration the system
+       stretches the whole window on a high-DPI display, blurring the sun and the text -->
   <application xmlns="urn:schemas-microsoft-com:asm.v3">
     <windowsSettings>
       <dpiAware xmlns="http://schemas.microsoft.com/SMI/2005/WindowsSettings">true/pm</dpiAware>

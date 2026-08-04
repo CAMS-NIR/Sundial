@@ -73,21 +73,21 @@ extension OAuthError {
 
 func oauthErrorText(_ e: Error) -> String {
     switch e {
-    case OAuthError.network(let m): return "网络问题：\(m)"
+    case OAuthError.network(let m): return "Network problem: \(m)"
     case OAuthError.badPaste(let m): return m
     case OAuthError.server(let code, let body):
         if code == 400 || code == 401 {
             return """
-            授权码无效或已过期。常见原因：
-            1. 浏览器里留着旧的「Authentication code」标签页，从旧页复制了码
-               → 请关掉所有这类旧标签，重新点一次登录，只用最新那页的码
-            2. 同一个码用过一次了（每个码只能用一次）
-            3. 授权页放了太久（超过几分钟就会失效）
+            The authorisation code is invalid or has expired. The usual causes:
+            1. An old "Authentication code" tab is still open and the code was copied from it
+               → close every such tab, start the sign-in again, and use only the newest page
+            2. The code has already been used once (each one works exactly once)
+            3. The authorisation page sat open too long (a few minutes is enough to expire it)
             """
         }
-        if code == 429 { return "请求过于频繁（429），请等一会儿再试。" }
-        return "服务器返回 \(code)：\(body)"
-    case OAuthError.badResponse: return "返回内容无法解析"
+        if code == 429 { return "Too many requests (429). Please wait a moment and try again." }
+        return "Server returned \(code): \(body)"
+    case OAuthError.badResponse: return "Could not parse the response"
     default: return e.localizedDescription
     }
 }
@@ -114,7 +114,7 @@ func oauthPost(_ body: [String: String]) throws -> StoredToken {
     task.resume()
     if sem.wait(timeout: .now() + 25) == .timedOut {
         task.cancel()
-        throw OAuthError.network("请求超时")
+        throw OAuthError.network("Request timed out")
     }
     if let e = netErr { throw OAuthError.network(e.localizedDescription) }
     guard let d = data else { throw OAuthError.badResponse }
@@ -152,7 +152,7 @@ func exchangeCode(_ pasted: String, verifier: String) throws -> StoredToken {
     }
 
     guard !code.isEmpty else {
-        throw OAuthError.badPaste("没能从粘贴的内容里认出授权码。请复制授权页面上显示的那段授权码，或浏览器地址栏里的整条回调地址。")
+        throw OAuthError.badPaste("No authorisation code was recognised in what you pasted. Copy the code shown on the authorisation page, or the whole callback URL from the address bar.")
     }
     // We no longer reject outright just because state doesn't match: the real security
     // binding is PKCE's code_verifier, and the server checks that. Here we only give an

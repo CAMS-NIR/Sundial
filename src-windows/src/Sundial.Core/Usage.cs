@@ -105,19 +105,19 @@ public static class Usage
     public static (string Label, int Priority)? LabelFor(string key)
     {
         var k = key.ToLowerInvariant();
-        if (k.Contains("five_hour") || k == "session") return ("5 小时", 0);
-        if (k == "seven_day" || k == "weekly" || k == "weekly_all") return ("每周 · 全部模型", 1);
-        if (k.Contains("fable")) return ("每周 · Fable", 2);
-        if (k.Contains("mythos")) return ("每周 · Mythos", 2);
-        if (k.Contains("opus")) return ("每周 · Opus", 3);
-        if (k.Contains("sonnet")) return ("每周 · Sonnet", 4);
-        if (k.Contains("cowork")) return ("每周 · Cowork", 5);
-        if (k.Contains("routine")) return ("每周 · Routines", 6);
+        if (k.Contains("five_hour") || k == "session") return ("5 hours", 0);
+        if (k == "seven_day" || k == "weekly" || k == "weekly_all") return ("Weekly · all models", 1);
+        if (k.Contains("fable")) return ("Weekly · Fable", 2);
+        if (k.Contains("mythos")) return ("Weekly · Mythos", 2);
+        if (k.Contains("opus")) return ("Weekly · Opus", 3);
+        if (k.Contains("sonnet")) return ("Weekly · Sonnet", 4);
+        if (k.Contains("cowork")) return ("Weekly · Cowork", 5);
+        if (k.Contains("routine")) return ("Weekly · Routines", 6);
         if (k.Contains("extra") || k.Contains("overage")) return null; // extra paid-for usage, not displayed for now
         if (k.Contains("seven_day"))
         {
             var name = Capitalized(k.Replace("seven_day_", ""));
-            return ($"每周 · {name}", 7);
+            return ($"Weekly · {name}", 7);
         }
         return null;
     }
@@ -185,14 +185,14 @@ public static class Usage
         return DateTimeOffset.UnixEpoch.AddSeconds(secs);
     }
 
-    private static readonly string[] WeekdayZh = { "周日", "周一", "周二", "周三", "周四", "周五", "周六" };
+    private static readonly string[] WeekdayZh = { "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat" };
 
-    /// <summary>The compact reset time shown on the right-hand side of a limit row: "4h32m" / "周四 14:00" (i.e. "Thu 14:00")</summary>
+    /// <summary>The compact reset time shown on the right-hand side of a limit row: "4h32m" / "Thu 14:00"</summary>
     public static string CompactReset(DateTimeOffset? d)
     {
         if (d is null) return "";
         var secs = (d.Value - DateTimeOffset.Now).TotalSeconds;
-        if (secs <= 0) return "即将";
+        if (secs <= 0) return "soon";
         if (secs < 24 * 3600)
         {
             int total = (int)secs, h = total / 3600, m = total % 3600 / 60;
@@ -523,7 +523,7 @@ public sealed class UsageFetcher : IDisposable
             // An exception during shutdown needn't be written back to the model: by then Tick has
             // already short-circuited, so a stuck _inFlight doesn't matter
             if (_cts.IsCancellationRequested) return;
-            Fail($"内部错误：{e.Message}", sleep: true, retryAfter: 300);
+            Fail($"Internal error: {e.Message}", sleep: true, retryAfter: 300);
         }
     }
 
@@ -549,7 +549,7 @@ public sealed class UsageFetcher : IDisposable
         {
             // only sign out when the server has explicitly refused the credentials
             _tokens.Invalidate();
-            NeedLogin("登录已失效\n双击我重新登录");
+            NeedLogin("Sign-in expired\nDouble-click me to sign in again");
             return;
         }
         catch (Exception)
@@ -558,7 +558,7 @@ public sealed class UsageFetcher : IDisposable
             // the token and retry later.
             // Never Invalidate here: one dropped connection would sign the user out permanently, and
             // that is the most expensive kind of bug there is
-            Fail("网络暂时不可用，稍后自动重试", sleep: true, retryAfter: 120);
+            Fail("Network unavailable — retrying shortly", sleep: true, retryAfter: 120);
             return;
         }
 
@@ -574,8 +574,8 @@ public sealed class UsageFetcher : IDisposable
             // again rather than sending them through the whole sign-in once more (this is the
             // original's keychainDenied branch)
             NeedLogin(_tokens.LastNoTokenReason == CredErrorKind.StoreDenied
-                ? "凭证读取被拒\n双击我重试或重新登录"
-                : "未登录\n双击我登录 Claude 账号");
+                ? "Credential read refused\nDouble-click to retry or sign in"
+                : "Not signed in\nDouble-click to sign in");
             return;
         }
 
@@ -604,18 +604,18 @@ public sealed class UsageFetcher : IDisposable
         catch (OperationCanceledException)
         {
             // a timeout is the only possibility left (both HttpClient.Timeout and the CTS surface as this exception)
-            Fail("请求超时，稍后自动重试", sleep: true, retryAfter: 90);
+            Fail("Request timed out — retrying shortly", sleep: true, retryAfter: 90);
             return;
         }
         catch (HttpRequestException)
         {
-            Fail("网络不可用，稍后自动重试", sleep: true, retryAfter: 90);
+            Fail("Network unavailable — retrying shortly", sleep: true, retryAfter: 90);
             return;
         }
         catch (IOException)
         {
             // the stream broke while reading the response body
-            Fail("网络不可用，稍后自动重试", sleep: true, retryAfter: 90);
+            Fail("Network unavailable — retrying shortly", sleep: true, retryAfter: 90);
             return;
         }
 
@@ -627,7 +627,7 @@ public sealed class UsageFetcher : IDisposable
                 var parsed = Usage.ParseUsage(body);
                 if (parsed is not { } ok || ok.Rows.Count == 0)
                 {
-                    Fail("接口返回了看不懂的数据\n（Anthropic 可能改了格式）", sleep: true, retryAfter: 300);
+                    Fail("The endpoint returned data I could not read\n(Anthropic may have changed the format)", sleep: true, retryAfter: 300);
                     return;
                 }
                 _post(() =>
@@ -680,21 +680,21 @@ public sealed class UsageFetcher : IDisposable
                     catch (Exception e) when (!IsCredentialRejection(e))
                     {
                         // Dropped connection / rate limiting / 5xx during renewal: don't touch a single character of the token, wait for the next round
-                        Fail("网络暂时不可用，稍后自动重试", sleep: true, retryAfter: 120);
+                        Fail("Network unavailable — retrying shortly", sleep: true, retryAfter: 120);
                         return;
                     }
                     catch (Exception)
                     {
                         // The server has explicitly refused the refresh token — this is the one case that really is expired
                         _tokens.Invalidate();
-                        NeedLogin("登录已失效\n双击我重新登录");
+                        NeedLogin("Sign-in expired\nDouble-click me to sign in again");
                         return;
                     }
 
                     if (renewed)
                     {
                         _refreshStreak++;
-                        Fail("正在续期，马上重试", sleep: false,
+                        Fail("Renewing — retrying now", sleep: false,
                              retryAfter: new[] { 30.0, 120.0, 600.0 }[_refreshStreak - 1]);
                     }
                     else
@@ -706,29 +706,29 @@ public sealed class UsageFetcher : IDisposable
                         // abandon is not an option: it sets retryAfter to 0, and against the first of
                         // those two directions that becomes a "401 → retry immediately → 401" hot loop
                         _tokens.Invalidate();
-                        NeedLogin("登录已失效\n双击我重新登录");
+                        NeedLogin("Sign-in expired\nDouble-click me to sign in again");
                     }
                 }
                 else if (cred.IsOwn)
                 {
                     _tokens.Invalidate();
-                    NeedLogin("登录已失效\n双击我重新登录");
+                    NeedLogin("Sign-in expired\nDouble-click me to sign in again");
                 }
                 else
                 {
                     // These are the Claude Code CLI's credentials, not ones we issued, so we have no right to invalidate them
-                    NeedLogin("未登录\n双击我登录 Claude 账号");
+                    NeedLogin("Not signed in\nDouble-click to sign in");
                 }
                 return;
             case 403:
                 // Insufficient permissions (the scope doesn't line up, and the like); a refresh won't fix it, so don't spin
-                Fail("接口拒绝访问 (403)\n可尝试重新登录", sleep: true, retryAfter: 600);
+                Fail("Endpoint refused access (403)\nTry signing in again", sleep: true, retryAfter: 600);
                 return;
             case 429:
-                Fail("接口限流中，稍后自动重试", sleep: false, retryAfter: 300);
+                Fail("Endpoint rate-limited — retrying shortly", sleep: false, retryAfter: 300);
                 return;
             default:
-                Fail($"接口错误 ({status})，稍后自动重试", sleep: true, retryAfter: 180);
+                Fail($"Endpoint error ({status}) — retrying shortly", sleep: true, retryAfter: 180);
                 return;
         }
     }

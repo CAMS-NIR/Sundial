@@ -153,24 +153,24 @@ public static class OAuthErrorText
             switch (oe.Kind)
             {
                 case OAuthErrorKind.Network:
-                    return $"网络问题：{oe.Message}";
+                    return $"Network problem: {oe.Message}";
                 case OAuthErrorKind.BadPaste:
                     return oe.Message;
                 case OAuthErrorKind.BadResponse:
-                    return "返回内容无法解析";
+                    return "Could not parse the response";
                 case OAuthErrorKind.Server:
                     if (oe.StatusCode is 400 or 401)
                     {
                         return """
-                        授权码无效或已过期。常见原因：
-                        1. 浏览器里留着旧的「Authentication code」标签页，从旧页复制了码
-                           → 请关掉所有这类旧标签，重新点一次登录，只用最新那页的码
-                        2. 同一个码用过一次了（每个码只能用一次）
-                        3. 授权页放了太久（超过几分钟就会失效）
+                        The authorisation code is invalid or has expired. The usual causes:
+                        1. An old "Authentication code" tab is still open and the code came from it
+                           → close every such tab, start the sign-in again, use only the newest page
+                        2. The code has already been used once (each one works exactly once)
+                        3. The authorisation page sat open too long (a few minutes is enough)
                         """;
                     }
-                    if (oe.StatusCode == 429) return "请求过于频繁（429），请等一会儿再试。";
-                    return $"服务器返回 {oe.StatusCode}：{oe.Body}";
+                    if (oe.StatusCode == 429) return "Too many requests (429). Please wait a moment and try again.";
+                    return $"Server returned {oe.StatusCode}: {oe.Body}";
             }
         }
         return e.Message;
@@ -211,7 +211,7 @@ public static class OAuthClient
             // An HttpClient timeout also comes through as OperationCanceledException (.NET's historical
             // baggage); we tell the two apart by whether ct was triggered, otherwise a timeout gets
             // swallowed as a user cancellation.
-            throw new OAuthException(OAuthErrorKind.Network, "请求超时");
+            throw new OAuthException(OAuthErrorKind.Network, "Request timed out");
         }
         catch (HttpRequestException e)
         {
@@ -235,7 +235,7 @@ public static class OAuthClient
                 at.ValueKind != JsonValueKind.String ||
                 string.IsNullOrEmpty(at.GetString()))
             {
-                throw new OAuthException(OAuthErrorKind.BadResponse, "返回内容无法解析");
+                throw new OAuthException(OAuthErrorKind.BadResponse, "Could not parse the response");
             }
             access = at.GetString()!;
             if (root.TryGetProperty("refresh_token", out var rt) && rt.ValueKind == JsonValueKind.String)
@@ -246,7 +246,7 @@ public static class OAuthClient
         }
         catch (JsonException)
         {
-            throw new OAuthException(OAuthErrorKind.BadResponse, "返回内容无法解析");
+            throw new OAuthException(OAuthErrorKind.BadResponse, "Could not parse the response");
         }
 
         return new StoredToken
@@ -295,7 +295,7 @@ public static class OAuthClient
         if (string.IsNullOrEmpty(code))
         {
             throw new OAuthException(OAuthErrorKind.BadPaste,
-                "没能从粘贴的内容里认出授权码。请复制授权页面上显示的那段授权码，或浏览器地址栏里的整条回调地址。");
+                "No authorisation code was recognised in what you pasted. Copy the code shown on the authorisation page, or the whole callback URL from the address bar.");
         }
 
         // No longer rejected outright just because state doesn't match: the real security binding is PKCE's

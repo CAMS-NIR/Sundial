@@ -62,8 +62,8 @@ public sealed class PetModel
     {
         get
         {
-            var outer = Rows.FirstOrDefault(r => r.Label.Contains("5 小时")) ?? Rows.FirstOrDefault();
-            var weeklies = Rows.Where(r => r.Label.StartsWith("每周")).ToList();
+            var outer = Rows.FirstOrDefault(r => r.Label.Contains("5 hours")) ?? Rows.FirstOrDefault();
+            var weeklies = Rows.Where(r => r.Label.StartsWith("Weekly")).ToList();
             var inner = weeklies.Count > 0
                 ? weeklies.Aggregate((a, b) => b.Percent > a.Percent ? b : a)
                 : Rows.FirstOrDefault(r => r.Label != outer?.Label);
@@ -114,17 +114,17 @@ public static class Format
     {
         if (since is null) return "";
         var secs = Math.Max(0, (int)(DateTimeOffset.Now - since.Value).TotalSeconds);
-        if (secs < 60) return $"{secs} 秒";
+        if (secs < 60) return $"{secs}s";
         int m = secs / 60, s = secs % 60;
-        return m < 60 ? $"{m} 分 {s} 秒" : $"{m / 60} 小时 {m % 60} 分";
+        return m < 60 ? $"{m}m {s}s" : $"{m / 60}h {m % 60}m";
     }
 
     public static string Ago(DateTimeOffset? date)
     {
         if (date is null) return "";
         var secs = Math.Max(0, (int)(DateTimeOffset.Now - date.Value).TotalSeconds);
-        if (secs < 60) return "刚刚完成";
+        if (secs < 60) return "just now";
         var m = secs / 60;
-        return m < 60 ? $"{m} 分钟前完成" : $"{m / 60} 小时前完成";
+        return m < 60 ? $"{m} min ago" : $"{m / 60} h ago";
     }
 }

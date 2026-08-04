@@ -76,10 +76,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         mainMenu.addItem(NSMenuItem())
         let editItem = NSMenuItem()
         let edit = NSMenu(title: "Edit")
-        edit.addItem(withTitle: "剪切", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
-        edit.addItem(withTitle: "复制", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
-        edit.addItem(withTitle: "粘贴", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
-        edit.addItem(withTitle: "全选", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        edit.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+        edit.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        edit.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        edit.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
         editItem.submenu = edit
         mainMenu.addItem(editItem)
         NSApp.mainMenu = mainMenu
@@ -564,42 +564,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(title)
         menu.addItem(.separator())
         let loggedIn = fetcher?.hasToken ?? false
-        menu.addItem(withTitle: loggedIn ? "重新登录 Claude 账号…" : "登录 Claude 账号…",
+        menu.addItem(withTitle: loggedIn ? "Sign in to Claude account again…" : "Sign in to Claude account…",
                      action: #selector(startLogin), keyEquivalent: "")
         if loggedIn {
-            menu.addItem(withTitle: "退出登录", action: #selector(signOut), keyEquivalent: "")
+            menu.addItem(withTitle: "Sign out", action: #selector(signOut), keyEquivalent: "")
         }
         menu.addItem(.separator())
-        menu.addItem(withTitle: "立即刷新", action: #selector(refreshNow), keyEquivalent: "")
+        menu.addItem(withTitle: "Refresh now", action: #selector(refreshNow), keyEquivalent: "")
         // The equivalent of hovering by another route: see the breakdown without holding the mouse over the window
-        let det = NSMenuItem(title: "显示用量明细", action: #selector(toggleDetails),
+        let det = NSMenuItem(title: "Keep usage breakdown open", action: #selector(toggleDetails),
                              keyEquivalent: "")
         det.state = model.detailsPinned ? .on : .off
         menu.addItem(det)
-        menu.addItem(withTitle: "打开网页版用量", action: #selector(openWeb), keyEquivalent: "")
+        menu.addItem(withTitle: "Open the web usage page", action: #selector(openWeb), keyEquivalent: "")
         if forStatusItem {
-            menu.addItem(withTitle: "把桌宠移回屏幕中央", action: #selector(recenterWindow),
+            menu.addItem(withTitle: "Bring the pet back to the centre", action: #selector(recenterWindow),
                          keyEquivalent: "")
         }
         menu.addItem(.separator())
-        let cg = NSMenuItem(title: "更通透的玻璃", action: #selector(toggleClearGlass),
+        let cg = NSMenuItem(title: "Clearer glass", action: #selector(toggleClearGlass),
                             keyEquivalent: "")
         cg.state = Self.clearGlass ? .on : .off
         menu.addItem(cg)
-        let top = NSMenuItem(title: "始终置于其他窗口之上", action: #selector(toggleAbovePopups),
+        let top = NSMenuItem(title: "Keep above other windows", action: #selector(toggleAbovePopups),
                              keyEquivalent: "")
         top.state = Self.abovePopups ? .on : .off
         menu.addItem(top)
-        let sb = NSMenuItem(title: "显示菜单栏图标", action: #selector(toggleStatusIcon),
+        let sb = NSMenuItem(title: "Show the menu bar icon", action: #selector(toggleStatusIcon),
                             keyEquivalent: "")
         sb.state = Self.showStatusIcon ? .on : .off
         menu.addItem(sb)
-        let auto = NSMenuItem(title: "登录时自动启动", action: #selector(toggleAutostart),
+        let auto = NSMenuItem(title: "Launch at login", action: #selector(toggleAutostart),
                               keyEquivalent: "")
         auto.state = autostartEnabled ? .on : .off
         menu.addItem(auto)
         menu.addItem(.separator())
-        menu.addItem(withTitle: "退出 Sundial", action: #selector(quit), keyEquivalent: "")
+        menu.addItem(withTitle: "Quit Sundial", action: #selector(quit), keyEquivalent: "")
         for item in menu.items { item.target = self }
         return menu
     }
@@ -667,7 +667,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         model.needsLogin = true
         model.rows = []
         model.tier = ""
-        model.errorMsg = "已退出登录\n双击我重新登录"
+        model.errorMsg = "Signed out\nDouble-click me to sign in again"
         model.asleep = true
         model.loading = false
         adjustWindowHeight()
@@ -699,18 +699,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func promptForCode(verifier: String) {
         NSApp.activate(ignoringOtherApps: true)
         let alert = NSAlert()
-        alert.messageText = "连接 Claude 账号"
+        alert.messageText = "Connect your Claude account"
         alert.informativeText = """
-        浏览器已打开 Claude 授权页面，请在浏览器里登录并点击授权。
-        授权后把页面给出的授权码粘贴到下面（直接复制浏览器地址栏也行）。
+        Your browser has opened Claude's authorisation page. Sign in there and approve.
+        Then paste the code it gives you below (the whole address-bar URL works too).
 
-        注意：如果浏览器里还留着以前的授权页，请用刚打开的这一页，
-        旧页面上的码是无效的。
+        Note: if an older authorisation page is still open, use the one that has just
+        opened — a code from the old page will not work.
         """
-        alert.addButton(withTitle: "完成登录")
-        alert.addButton(withTitle: "取消")
+        alert.addButton(withTitle: "Finish signing in")
+        alert.addButton(withTitle: "Cancel")
         let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 330, height: 24))
-        field.placeholderString = "在此粘贴授权码"
+        field.placeholderString = "Paste the authorisation code here"
         alert.accessoryView = field
         alert.window.initialFirstResponder = field
         var response: NSApplication.ModalResponse = .cancel
@@ -742,7 +742,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     self.model.errorMsg = nil
                     self.model.asleep = false
                     self.fetcher.forceRefresh()
-                    if !saved { self.warn("登录成功，但令牌没能存进钥匙串，下次启动可能需要重新登录。") }
+                    if !saved { self.warn("Signed in, but the token could not be saved to the Keychain. You may have to sign in again next time.") }
                 }
             } catch {
                 let text = oauthErrorText(error)
@@ -753,23 +753,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                         self.model.needsLogin = true
                         self.model.rows = []      // without clearing this, the login card and its button won't render
                         self.model.tier = ""
-                        self.model.errorMsg = "登录失败\n双击我重试"
+                        self.model.errorMsg = "Sign-in failed\nDouble-click me to retry"
                         self.model.asleep = true
                         self.adjustWindowHeight()
                     }
                     self.petView.needsDisplay = true
-                    self.warn(text, title: "登录失败")
+                    self.warn(text, title: "Sign-in failed")
                 }
             }
         }
     }
 
-    private func warn(_ text: String, title: String = "提示") {
+    private func warn(_ text: String, title: String = "Notice") {
         let a = NSAlert()
         a.alertStyle = .warning
         a.messageText = title
         a.informativeText = text
-        a.addButton(withTitle: "好")
+        a.addButton(withTitle: "OK")
         NSApp.activate(ignoringOtherApps: true)
         withLoweredWindow { _ = a.runModal() }
     }
@@ -795,11 +795,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             } else {
                 try SMAppService.mainApp.register()
                 if SMAppService.mainApp.status == .requiresApproval {
-                    warn("请在「系统设置 › 通用 › 登录项」里允许 Sundial 开机启动。", title: "需要你确认")
+                    warn("Allow Sundial to open at login under System Settings › General › Login Items.", title: "One thing to confirm")
                 }
             }
         } catch {
-            warn("无法修改开机自启设置：\(error.localizedDescription)", title: "设置失败")
+            warn("Could not change the launch-at-login setting: \(error.localizedDescription)", title: "Setting failed")
         }
     }
 

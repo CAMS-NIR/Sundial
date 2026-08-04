@@ -24,9 +24,9 @@ rm -f .gen
 
 if [[ "${1:-light}" == "dark" ]]; then
   cp ../Sundial-dark.icns ../Sundial.icns
-  echo "✓ 已启用【深色】图标；跑一次 ../build.sh 生效"
+  echo "✓ DARK icon selected; run ../build.sh once for it to take effect"
 else
   cp ../Sundial-light.icns ../Sundial.icns
-  echo "✓ 已启用【浅色】图标；跑一次 ../build.sh 生效"
+  echo "✓ LIGHT icon selected; run ../build.sh once for it to take effect"
 fi
-echo "  两个版本都留在 ../Sundial-light.icns 和 ../Sundial-dark.icns"
+echo "  Both versions remain at ../Sundial-light.icns and ../Sundial-dark.icns"

@@ -46,10 +46,10 @@ needs to be slow enough that it does not look like the thing was erased.
 
 ### The two dials
 
-- **Left = the five-hour allowance**, label fixed as "5 小时".
+- **Left = the five-hour allowance**, label fixed as "5 hours".
 - **Right = whichever weekly allowance is tightest.** The label is either
   "weekly" (all models) or a model name (`weeklyShortName` strips
-  "每周 · Fable" down to "Fable"). **This one changes identity** — Fable can be
+  "Weekly · Fable" down to "Fable"). **This one changes identity** — Fable can be
   overtaken by "all models".
 - Ring radius 21 pt, line width 5 pt, filling clockwise from the top, at most
   one full turn. An overrun (106%) is expressed by the figure in the middle.

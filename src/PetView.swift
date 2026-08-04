@@ -84,7 +84,7 @@ final class PetView: NSView {
         guard let (date, label) = next else { return nil }
         // A long label such as "Weekly · All models" is cut down to its first segment; 198pt of width cannot fit the whole thing
         let short = label.components(separatedBy: " · ").first ?? label
-        return "\(short) · \(compactReset(date)) 后解封"
+        return "\(short) · resets in \(compactReset(date))"
     }
 
     /// For AppDelegate.expandedHeight(): does this line take up any room or not
@@ -441,7 +441,7 @@ final class PetView: NSView {
     // The container itself has to be visible, otherwise the children get hung off the window and the label is never read out either
     override func isAccessibilityElement() -> Bool { true }
     override func accessibilityRole() -> NSAccessibility.Role? { .group }
-    override func accessibilityLabel() -> String? { "Claude 用量与会话状态" }
+    override func accessibilityLabel() -> String? { "Claude usage and session activity" }
 
     /// A pressable accessibility element: runs the action when VoiceOver presses it
     final class ActionElement: NSAccessibilityElement {
@@ -475,35 +475,35 @@ final class PetView: NSView {
         // In the collapsed state the gauges are not drawn, so do not report them to assistive technology
         if expandProgress > 0.5 {
             for (row, name, cx) in [
-                (rings.outer, "5 小时用量", card.minX + card.width * 0.17),
-                (rings.inner, "每周用量", card.maxX - card.width * 0.17),
+                (rings.outer, "Five-hour usage", card.minX + card.width * 0.17),
+                (rings.inner, "Weekly usage", card.maxX - card.width * 0.17),
             ] {
                 guard let row else { continue }
-                var v = "已用 \(row.percent)%"
-                if let d = row.resetAt { v += "，\(compactReset(d)) 后重置" }
+                var v = "\(row.percent)% used"
+                if let d = row.resetAt { v += ", resets in \(compactReset(d))" }
                 add("gauge:" + name, .levelIndicator, name, v,
                     accessibilityFrame(NSRect(x: cx - gaugeR, y: midY - gaugeR,
                                               width: gaugeR * 2, height: gaugeR * 2)))
             }
         }
         if model.needsLogin, loginButtonRect != .zero {
-            add("login", .button, "登录 Claude 账号", nil,
+            add("login", .button, "Sign in to Claude account", nil,
                 accessibilityFrame(loginButtonRect))
         }
         for (id, rect) in blockRects {
             guard let s = model.sessions.first(where: { $0.id == id }) else { continue }
             var v: String
-            if s.waiting { v = "等待你选择" }
-            else if s.background { v = "后台任务运行中" }
-            else if s.busy { v = "正在思考" }
-            else if s.stalled { v = "无响应，长时间没有新记录" }
-            else { v = "已完成，未读" }
-            if let since = s.since { v += "，已用时 \(elapsedText(since: since))" }
+            if s.waiting { v = "Waiting for you to choose" }
+            else if s.background { v = "Background task running" }
+            else if s.busy { v = "Thinking" }
+            else if s.stalled { v = "Not responding — no new records for some time" }
+            else { v = "Finished, unread" }
+            if let since = s.since { v += ", running for \(elapsedText(since: since))" }
             if s.ctxLimit > 0, s.ctxTokens > 0 {
                 let pct = min(100, max(0, Int(Double(s.ctxTokens) / Double(s.ctxLimit) * 100)))
-                v += "，上下文已用 \(pct)%"
+                v += ", context \(pct)% used"
             }
-            add("session:" + id, .button, s.title.isEmpty ? "Claude Code 会话" : s.title,
+            add("session:" + id, .button, s.title.isEmpty ? "Claude Code sessions" : s.title,
                 v, accessibilityFrame(rect))
         }
 
@@ -632,7 +632,7 @@ final class PetView: NSView {
         }
 
         if model.loading {
-            drawText("正在获取用量…", in: NSRect(x: card.minX, y: y + 6,
+            drawText("Fetching usage…", in: NSRect(x: card.minX, y: y + 6,
                                             width: card.width, height: 16),
                      font: .systemFont(ofSize: 11),
                      color: .secondaryLabelColor, align: .center)
@@ -656,7 +656,7 @@ final class PetView: NSView {
                 loginButtonRect = btn
                 NSColor.coralDeep.setFill()
                 NSBezierPath(roundedRect: btn, xRadius: 13, yRadius: 13).fill()
-                drawText("双击登录", in: NSRect(x: btn.minX, y: btn.minY + 6,
+                drawText("Double-click to sign in", in: NSRect(x: btn.minX, y: btn.minY + 6,
                                             width: btn.width, height: 16),
                          font: .systemFont(ofSize: 11, weight: .semibold),
                          color: .white, align: .center)
@@ -948,9 +948,9 @@ final class PetView: NSView {
 
     /// The small label under the inner ring: the all-models limit shows "Weekly", a model-specific limit shows the model name
     private func weeklyShortName(_ row: UsageRow?) -> String {
-        guard let l = row?.label else { return "每周" }
-        if l.contains("全部模型") { return "每周" }
-        return l.replacingOccurrences(of: "每周 · ", with: "")
+        guard let l = row?.label else { return "Weekly" }
+        if l.contains("all models") { return "Weekly" }
+        return l.replacingOccurrences(of: "Weekly · ", with: "")
     }
 
     // MARK: The two side-by-side gauges (proportion used)
@@ -967,7 +967,7 @@ final class PetView: NSView {
         let rings = model.ringRows
         // left gauge — sun — right gauge, centred in three equal parts
         let gauges: [(UsageRow?, String, CGFloat)] = [
-            (rings.outer, "5小时", card.minX + card.width * 0.17),
+            (rings.outer, "5 hours", card.minX + card.width * 0.17),
             (rings.inner, weeklyShortName(rings.inner), card.maxX - card.width * 0.17),
         ]
         for (k, g) in gauges.enumerated() {
@@ -1034,20 +1034,20 @@ final class PetView: NSView {
         var subColor: NSColor = .secondaryLabelColor
         if s.waiting {
             let e = elapsedText(since: s.since)
-            sub = e.isEmpty ? "等你选择" : "等你选择 · \(e)"
+            sub = e.isEmpty ? "Waiting for you" : "Waiting for you · \(e)"
             subColor = .labelColor        // grabbing attention is left to the breathing dot on the right; the text only has to stay readable
         } else if s.background {
             let e = elapsedText(since: s.since)
-            sub = e.isEmpty ? "后台任务运行中" : "后台任务 · \(e)"
+            sub = e.isEmpty ? "Background task running" : "Background task · \(e)"
         } else if s.busy {
             let e = elapsedText(since: s.since)
-            sub = e.isEmpty ? "正在思考" : "正在思考 · \(e)"
+            sub = e.isEmpty ? "Thinking" : "Thinking · \(e)"
         } else if s.stalled {
             // It has just been a long time with no new records; we do not know whether it finished, so do not falsely report "done"
             let e = elapsedText(since: s.finishedAt)
-            sub = e.isEmpty ? "无响应" : "无响应 · 已 \(e) 无更新"
+            sub = e.isEmpty ? "Not responding" : "Not responding · no update for \(e)"
         } else {
-            sub = "未读 · " + agoText(s.finishedAt)
+            sub = "Unread · " + agoText(s.finishedAt)
         }
         drawText(sub, in: NSRect(x: box.minX + 10, y: box.minY + 18,
                                  width: box.width - 40, height: 13),
@@ -1062,7 +1062,7 @@ final class PetView: NSView {
             let barX = box.minX + 10
             let barW = box.width - 20
 
-            drawText("上下文 \(tokenText(s.ctxTokens)) / \(tokenText(s.ctxLimit))",
+            drawText("Context \(tokenText(s.ctxTokens)) / \(tokenText(s.ctxLimit))",
                      in: NSRect(x: barX, y: barY - 12, width: barW - 30, height: 11),
                      font: .systemFont(ofSize: 9.5), color: .labelColor)
             drawText("\(pct)%",
@@ -1132,7 +1132,7 @@ final class PetView: NSView {
         let innerW = card.width - 26
         var y = startY
 
-        drawText("Claude 用量", in: NSRect(x: innerX, y: y, width: innerW * 0.6, height: 13),
+        drawText("Claude usage", in: NSRect(x: innerX, y: y, width: innerW * 0.6, height: 13),
                  font: .systemFont(ofSize: 9.5, weight: .semibold),
                  color: .labelColor)
         if !model.tier.isEmpty {
@@ -1151,7 +1151,7 @@ final class PetView: NSView {
         // neutral grey, so you can see at a glance that this one is not drawn as a ring.
         let shownRows = model.ringRows
         if model.rows.isEmpty {
-            drawText(model.needsLogin ? "未登录，只显示会话状态" : "暂时取不到用量",
+            drawText(model.needsLogin ? "Not signed in — session activity only" : "Usage unavailable",
                      in: NSRect(x: innerX, y: y, width: innerW, height: 14),
                      font: .systemFont(ofSize: 9.5),
                      color: .secondaryLabelColor)
@@ -1166,18 +1166,22 @@ final class PetView: NSView {
             c.setFill()
             NSBezierPath(ovalIn: NSRect(x: innerX, y: y + 4, width: 6, height: 6)).fill()
             NSBezierPath(rect: bounds).setClip()
+            // 80pt, not 65. The Chinese labels fitted; "Weekly · Fable" did not, and truncating to
+            // "Weekly · Fa…" loses the one thing that row is there to tell you — which model it is.
+            // The width comes out of the two number columns, which had spare room: "100%" needs 26pt
+            // of the 40 it had, and "Fri 18:27" needs 42 of 54
             drawText(row.label,
-                     in: NSRect(x: innerX + 11, y: y, width: innerW - 11 - 96, height: 14),
+                     in: NSRect(x: innerX + 11, y: y, width: innerW - 11 - 81, height: 14),
                      font: .systemFont(ofSize: 9.5),
                      color: .secondaryLabelColor)
             // The numbers no longer change colour with usage: colour no longer carries the "how full"
             // information, that is the job of the arc length and of the number itself
             drawText("\(row.percent)%",
-                     in: NSRect(x: innerX + innerW - 96, y: y, width: 40, height: 14),
+                     in: NSRect(x: innerX + innerW - 81, y: y, width: 34, height: 14),
                      font: .monospacedDigitSystemFont(ofSize: 9.5, weight: .medium),
                      color: .labelColor, align: .right)
             drawText(compactReset(row.resetAt),
-                     in: NSRect(x: innerX + innerW - 54, y: y, width: 54, height: 14),
+                     in: NSRect(x: innerX + innerW - 47, y: y, width: 47, height: 14),
                      font: .systemFont(ofSize: 9.5),
                      color: .secondaryLabelColor, align: .right)
             y += 15
@@ -1189,7 +1193,7 @@ final class PetView: NSView {
             footer = "⚠︎ " + (msg.components(separatedBy: "\n").first ?? msg)
         } else if let last = model.lastFetch {
             let mins = Int(-last.timeIntervalSinceNow / 60)
-            footer = mins <= 0 ? "刚刚更新" : "\(mins) 分钟前更新"
+            footer = mins <= 0 ? "updated just now" : "updated \(mins) min ago"
         } else {
             footer = ""
         }

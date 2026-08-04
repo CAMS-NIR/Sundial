@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
-  <!-- 纯逻辑层：用量接口、会话记录解析、OAuth。
-       不引用任何 UI 框架，所以能在 macOS 上直接跑单元测试验证。 -->
+  <!-- Pure logic: the usage endpoint, transcript parsing, OAuth.
+       It references no UI framework, so its tests can be run directly on macOS. -->
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
@@ -11,7 +11,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- DPAPI 加密令牌（仅 Windows 生效，其它平台走回退实现） -->
+    <!-- DPAPI token encryption (Windows only; other platforms take the fallback path) -->
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.10" />
   </ItemGroup>
 

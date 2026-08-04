@@ -19,21 +19,21 @@ MODE="${1:-x64}"
 VERSION="$(cat ../VERSION 2>/dev/null || echo 0.0.0)"
 
 if [[ "$MODE" == "check" ]]; then
-  echo "▸ 拿本机真实的 Claude Code 记录跑 Core 层…"
+  echo "▸ Running the core layer against this machine's real Claude Code transcripts…"
   dotnet run --project tests/LiveCheck/LiveCheck.csproj
-  echo "\n▸ 离屏渲染界面到 /tmp/sundial-win-*.png…"
+  echo "\n▸ Rendering the interface offscreen to /tmp/sundial-win-*.png…"
   dotnet run --project tests/RenderCheck/RenderCheck.csproj -- /tmp
-  echo "✓ 验证完成"
+  echo "✓ Verification complete"
   exit 0
 fi
 
 case "$MODE" in
   arm64) RID="win-arm64"; OUT="dist-Windows-arm64" ;;
   x64)   RID="win-x64";   OUT="dist-Windows" ;;
-  *) echo "不认识的参数：$MODE（可用 x64 / arm64 / check）"; exit 1 ;;
+  *) echo "Unrecognised argument: $MODE (use x64 / arm64 / check)"; exit 1 ;;
 esac
 
-echo "▸ 打包 $RID（自包含，对方不用装 .NET 运行时）…"
+echo "▸ Packaging $RID (self-contained — no .NET runtime needed on the target)…"
 rm -rf "$OUT"
 dotnet publish src/Sundial.App/Sundial.App.csproj \
   -c Release -r "$RID" --self-contained true \
@@ -46,5 +46,5 @@ dotnet publish src/Sundial.App/Sundial.App.csproj \
 rm -f "$OUT"/*.pdb                      # no need to ship the debug symbols
 cp INSTALL.txt "$OUT/" 2>/dev/null || true
 
-echo "✓ 产物：$PWD/$OUT/Sundial.exe（$(du -h "$OUT/Sundial.exe" | cut -f1)）"
+echo "✓ Output: $PWD/$OUT/Sundial.exe ($(du -h "$OUT/Sundial.exe" | cut -f1))"
 file "$OUT/Sundial.exe"

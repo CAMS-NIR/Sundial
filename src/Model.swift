@@ -41,8 +41,8 @@ final class PetModel {
     /// all-models one, or a weekly limit specific to one model — when the latter is tighter it has to be
     /// shown, otherwise it misleads)
     var ringRows: (outer: UsageRow?, inner: UsageRow?) {
-        let outer = rows.first { $0.label.contains("5 小时") } ?? rows.first
-        let weeklies = rows.filter { $0.label.hasPrefix("每周") }
+        let outer = rows.first { $0.label.contains("5 hours") } ?? rows.first
+        let weeklies = rows.filter { $0.label.hasPrefix("Weekly") }
         let inner = weeklies.max { $0.percent < $1.percent }
             ?? rows.first { $0.label != outer?.label }
         return (outer, inner)

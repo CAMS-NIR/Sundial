@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <!-- 离屏把界面渲染成 PNG，用来在 Mac 上肉眼验证 Windows 版的画面。
-       不参与发布，只是开发时的验证工具。 -->
+  <!-- Renders the interface offscreen to PNG so the Windows build can be checked by eye
+       on a Mac. Not part of any release — a development verification tool only. -->
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>net10.0</TargetFramework>
