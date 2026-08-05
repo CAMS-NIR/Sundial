@@ -26,7 +26,10 @@ public sealed class PetRenderer
     public const double TopRowH = 64;
     /// <summary>Height with the hover detail open. Folded it is <see cref="BlockHClosed"/> — the
     /// absolute context figure is detail, and detail belongs with the rest of the detail.</summary>
-    public const double BlockH = 44;          // title + status + context line
+    // 48 rather than 44: the dial on the right is centred in the block and its caption hangs below
+    // it, so the block has to be at least twice the dial's radius plus the caption — anything less
+    // and one of the two has to move off centre.
+    public const double BlockH = 48;          // title + status + context line
     public const double BlockHClosed = 32;    // title + status only
 
     /// <summary>The block height right now. Interpolated rather than switched, for the same reason
@@ -540,19 +543,32 @@ public sealed class PetRenderer
         // right-click menu, which carries the same item.
         if (e > 0.5 && HoverProgress > 0.02 && !_model.Minimised)
         {
-            // Top-left, sitting on the corner — the same place and shape macOS puts the close
-            // button on a notification. Corners are where dismissal controls live; the top-right of
-            // this card is directly above the right-hand dial and reads as part of it.
-            const double br = 8.5;
-            var bc = new Point(card.X + 11, card.Y + 11);
-            var btn = new Rect(bc.X - br, bc.Y - br, br * 2, br * 2);
-            _minimiseButtonRect = btn.Inflate(3);   // a slightly generous hit target
+            // Top-left, sitting on the corner, at the size AppKit itself uses for the equivalent
+            // control. Two numbers taken from the system rather than judged by eye:
+            //
+            //   · a window's own miniaturise button is a 14pt square, inset 9pt from the frame edge
+            //     (read straight off NSWindow.standardWindowButton). The previous 17pt disc was
+            //     simply larger than the control the platform ships, on a card a quarter the width
+            //     of a window.
+            //   · the bar inside it is 49% of the diameter long and 8.8% thick — measured off
+            //     minus.circle.fill in SF Symbols, i.e. Apple drawing this exact glyph. The previous
+            //     bar was 47% long but 10% thick, and that extra weight is most of why it read heavy.
+            //
+            // The 9pt inset does not survive the trip to a 198pt card, so the button is placed by the
+            // corner instead: centred at (13, 13) inside a 26pt corner radius, its outermost point
+            // sits 25.4pt from the corner's centre of curvature against a radius of 26 — it beds into
+            // the curve the way a window control beds into a title bar.
+            const double bd = 14;
+            var bc = new Point(card.X + 13, card.Y + 13);
+            var btn = new Rect(bc.X - bd / 2, bc.Y - bd / 2, bd, bd);
+            _minimiseButtonRect = btn.Inflate(4);   // a slightly generous hit target
             ctx.DrawEllipse(new SolidColorBrush(
-                Theme.WithAlpha(Theme.LabelColor, 0.13 * HoverProgress)), null, bc, br, br);
+                Theme.WithAlpha(Theme.LabelColor, 0.11 * HoverProgress)), null, bc, bd / 2, bd / 2);
+            var bhalf = bd * 0.49 / 2;
             ctx.DrawLine(new Pen(new SolidColorBrush(
-                    Theme.WithAlpha(Theme.LabelColor, 0.62 * HoverProgress)), 1.7)
+                    Theme.WithAlpha(Theme.LabelColor, 0.55 * HoverProgress)), bd * 0.088)
                     { LineCap = PenLineCap.Round },
-                new Point(bc.X - 4, bc.Y), new Point(bc.X + 4, bc.Y));
+                new Point(bc.X - bhalf, bc.Y), new Point(bc.X + bhalf, bc.Y));
         }
 
         if (e <= 0.01) return;   // fully collapsed leaves nothing but the sun
@@ -1006,7 +1022,7 @@ public sealed class PetRenderer
                           null, box, 10, 10);
 
         var title = string.IsNullOrEmpty(s.Title) ? "Claude Code" : s.Title;
-        Theme.DrawText(ctx, title, new Rect(box.X + 10, box.Y + 4, box.Width - 40, 14),
+        Theme.DrawText(ctx, title, new Rect(box.X + 10, box.Y + 4, box.Width - 48, 14),
                        10.5, FontWeight.SemiBold,
                        s.Busy ? Theme.LabelColor : Theme.SecondaryLabelColor);
 
@@ -1038,7 +1054,7 @@ public sealed class PetRenderer
         {
             sub = Language.L("Unread · ", "未读 · ") + Format.Ago(s.FinishedAt);
         }
-        Theme.DrawText(ctx, sub, new Rect(box.X + 10, box.Y + 18, box.Width - 40, 13),
+        Theme.DrawText(ctx, sub, new Rect(box.X + 10, box.Y + 18, box.Width - 48, 13),
                        9, s.Waiting ? FontWeight.SemiBold : FontWeight.Normal, subColor);
 
         // Context usage is now carried by the ring on the right; all that is left here is the
@@ -1050,73 +1066,91 @@ public sealed class PetRenderer
         if (s.CtxLimit > 0 && s.CtxTokens > 0 && HoverProgress > 0.02)
         {
             Theme.DrawText(ctx, Language.L($"Context {Format.Tokens(s.CtxTokens)} / {Format.Tokens(s.CtxLimit)}", $"上下文 {Format.Tokens(s.CtxTokens)} / {Format.Tokens(s.CtxLimit)}"),
-                           new Rect(box.X + 10, box.Y + 30, box.Width - 44, 12),
+                           new Rect(box.X + 10, box.Y + 32, box.Width - 52, 12),
                            9.5, FontWeight.Normal,
                            Theme.WithAlpha(Theme.LabelColor, HoverProgress));
         }
 
-        DrawSessionRing(ctx, s, new Point(box.Right - 19, box.Y + 16), 12);
+        // Centred in the block, not pinned near the top. It used to sit at a fixed 16pt from the
+        // top edge, which is the middle of a folded block but well above the middle of an open one,
+        // so opening the card left it hanging by the title instead of owning its own column.
+        var dialC = new Point(box.Right - 20, box.Y + BlockHNow / 2);
+        DrawSessionRing(ctx, s, dialC, 9.2);
+        // Naming it. The two dials at the top of the card say what they are with a word underneath;
+        // this one said nothing, so a bare "98" sitting in a ring had to be guessed at. It gets the
+        // same treatment, and only with the hover detail — the same moment the token figures appear
+        // on the left of this row, so the word and the numbers it belongs to arrive together.
+        if (s.CtxLimit > 0 && s.CtxTokens > 0 && HoverProgress > 0.02)
+        {
+            Theme.DrawText(ctx, Language.L("Context", "上下文"),
+                           new Rect(dialC.X - 17, dialC.Y + 13.4, 34, 10),
+                           7.5, FontWeight.Normal,
+                           Theme.WithAlpha(Theme.SecondaryLabelColor,
+                                           Theme.SecondaryLabelColor.A / 255.0 * HoverProgress),
+                           TextAlignment.Center);
+        }
     }
 
     /// <summary>
-    /// The ring on the right of a session block. It carries <b>two</b> things at once, which is only
-    /// legible because they use different channels:
+    /// The dial on the right of a session block. It carries <b>two</b> things at once, which stays
+    /// legible only because they use separate channels:
     /// <list type="bullet">
-    /// <item>how much of the context window is used — a <b>static</b> arc from twelve o'clock, in a
-    /// neutral colour that deepens with the figure</item>
-    /// <item>what the session is doing — <b>motion</b> and <b>colour</b>: a coral comet travelling the
-    /// ring while it thinks, or a dot in the middle when waiting or unread</item>
+    /// <item>how much of the context window is used — a <b>static</b> arc from twelve o'clock on the
+    /// inner track, warm and deepening as it fills, with the figure itself in the middle</item>
+    /// <item>what the session is doing — <b>motion</b>, on an outer track of its own</item>
     /// </list>
-    /// The old spinner could not have absorbed the context reading: its readability came from the arc
-    /// length itself oscillating between 26° and 290°, so length was already spoken for. Freeing length
-    /// for the context figure means motion has to carry "thinking" alone, and the comet does that
-    /// without ever being mistaken for the fill — it is short, it moves, and it is coral where the
-    /// fill is neutral.
+    /// The old spinner could not have absorbed the context reading: its legibility came from the arc
+    /// length oscillating between 26° and 290°, so length was already spoken for. Handing length to
+    /// the context figure means motion has to carry "thinking" alone, and it can — the comet is
+    /// short, it moves, and it runs on a ring the fill never touches.
     /// </summary>
     private void DrawSessionRing(DrawingContext ctx, SessionActivity s, Point center, double r)
     {
-        const double lw = 2.4;
+        const double lw = 2.2;
+        var outer = r + 3;          // the state track, clear of the fill
         DrawArc(ctx, center, r, lw, 0, 360, Theme.WithAlpha(Theme.LabelColor, 0.12));
 
         if (s.CtxLimit > 0 && s.CtxTokens > 0)
         {
             var frac = Math.Min(1, (double)s.CtxTokens / s.CtxLimit);
-            // Grey towards the primary text colour. Written this way rather than "grey to black" so
-            // dark mode needs no special case: LabelColor is near-white there, and the same
-            // expression reads as grey → white instead of fading into the background.
-            // The 0.8 power lifts the low end — at 10% a nearly invisible arc looks like a fault.
-            var col = Theme.WithAlpha(Theme.LabelColor, 0.30 + 0.70 * Math.Pow(frac, 0.8));
-            DrawArc(ctx, center, r, lw, -90, -90 + 360 * frac, col, round: true);
-            // The figure sits in the middle, without the % sign: "100%" needs 20pt while the clear
-            // space inside the ring is 21.6, leaving nothing either side — and the ring it is
-            // printed inside already says what kind of number it is
+            DrawArc(ctx, center, r, lw, -90, -90 + 360 * frac,
+                    Theme.ContextArc(Math.Pow(frac, 0.8)), round: true);
+            // The figure sits in the middle, without a % sign: the clear space inside the ring is
+            // 16.2pt and "100" alone needs 16.4 at 8pt, so there was never room for one. Three
+            // digits drop to 7pt (14.4pt, which clears); one and two digits stay at 8. A number
+            // printed inside an arc that is filling up does not need to be told it is a percentage.
             var pct = (int)Math.Round(frac * 100, MidpointRounding.AwayFromZero);
             Theme.DrawText(ctx, pct.ToString(System.Globalization.CultureInfo.InvariantCulture),
                            new Rect(center.X - 12, center.Y - 5.5, 24, 11),
-                           8.5, FontWeight.SemiBold, Theme.LabelColor,
+                           pct >= 100 ? 7 : 8, FontWeight.SemiBold, Theme.LabelColor,
                            TextAlignment.Center, monoDigits: true);
         }
 
-        // State lives on the ring, never in the middle — the middle belongs to the number now
+        // State lives on its own track outside the fill, never in the middle. It used to share the
+        // fill's radius, which worked only while the fill was neutral and the state was coral; now
+        // that both are warm, separating them by radius is what keeps them apart — one is static and
+        // complete, the other is short and moving.
         if (s.Waiting)
         {
-            // Waiting for you: the whole ring breathes coral, distinct from the comet by covering
+            // Waiting for you: the whole outer track breathes, distinct from the comet by covering
             // the entire circle rather than travelling round it
             var pulse = 0.35 + 0.65 * (0.5 + 0.5 * Math.Sin(_t * 3.4));
-            DrawArc(ctx, center, r + 2.6, 1.8, 0, 360, Theme.WithAlpha(Theme.CoralDeep, pulse));
+            DrawArc(ctx, center, outer, 1.5, 0, 360, Theme.WithAlpha(Theme.CoralDeep, pulse));
         }
         else if (s.Busy)
         {
-            // The comet, drawn last so it passes over the context fill rather than under it
             var head = -90 + _spinPhase * 360;
-            DrawArc(ctx, center, r, lw, head - 38, head, Theme.CoralLight, round: true);
+            DrawArc(ctx, center, outer, 1.5, head - 38, head, Theme.CoralLight, round: true);
         }
         else if (!s.Stalled)
         {
-            // Unread: a single coral tick at twelve o'clock, breathing slowly
-            var pulse = 0.55 + 0.45 * Theme.EaseInOut((Math.Sin(_t * 1.6) + 1) / 2);
-            DrawArc(ctx, center, r + 2.6, 2.2, -104, -76,
-                    Theme.WithAlpha(Theme.CoralLight, pulse), round: true);
+            // Unread: the whole halo pulses, slowly. A single tick at twelve o'clock was too small a
+            // mark to notice on a block already dimmed for being finished — the thing it had to
+            // compete with was the entire rest of the card. Same shape as "waiting for you", told
+            // apart by pace and weight: this one is half the speed and never reaches full strength,
+            // so it reads as a reminder rather than a request.
+            var pulse = 0.30 + 0.40 * Theme.EaseInOut((Math.Sin(_t * 1.6) + 1) / 2);
+            DrawArc(ctx, center, outer, 1.7, 0, 360, Theme.WithAlpha(Theme.CoralLight, pulse));
         }
     }
 
@@ -1158,12 +1192,15 @@ public sealed class PetRenderer
                   : Sundial.App.Theme.TertiaryLabelColor;
             // The original set a 6×6 circle as the clip region here and then filled the same circle, which is equivalent to just drawing a solid dot
             ctx.DrawEllipse(new SolidColorBrush(c), null, new Point(innerX + 3, y + 7), 3, 3);
-            Theme.DrawText(ctx, Language.DisplayLabel(row.Label), new Rect(innerX + 11, y, innerW - 11 - 81, 14),
+            Theme.DrawText(ctx, Language.DisplayLabel(row.Label), new Rect(innerX + 11, y, innerW - 11 - 86, 14),
                            9.5, FontWeight.Normal, Theme.SecondaryLabelColor);
+            // 86pt of columns on the right, split 32 + 52 with a gap, matching the macOS side. They
+            // used to be 34 + 47 packed edge to edge, and with the weekday localised the Chinese
+            // "周五 15:06" is wide enough to run straight into the percentage beside it.
             // The numbers no longer change colour with usage: colour no longer carries the "how full" information
-            Theme.DrawText(ctx, $"{row.Percent}%", new Rect(innerX + innerW - 81, y, 34, 14),
+            Theme.DrawText(ctx, $"{row.Percent}%", new Rect(innerX + innerW - 86, y, 32, 14),
                            9.5, FontWeight.Medium, Theme.LabelColor, TextAlignment.Right, monoDigits: true);
-            Theme.DrawText(ctx, Usage.CompactReset(row.ResetAt), new Rect(innerX + innerW - 47, y, 47, 14),
+            Theme.DrawText(ctx, Usage.CompactReset(row.ResetAt), new Rect(innerX + innerW - 52, y, 52, 14),
                            9.5, FontWeight.Normal, Theme.SecondaryLabelColor, TextAlignment.Right);
             y += 15;
         }

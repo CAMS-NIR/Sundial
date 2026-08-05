@@ -131,14 +131,14 @@ One block per running Claude Code session, up to four:
 - Blocks **roll** in and out, with the ones below sliding up in step, rather than
   appearing and vanishing on the spot.
 
-The ring on the right of each block carries two readings at once, which only
-works because they use different channels. **How full the context window is** is
-a static arc from twelve o'clock, in a neutral colour that deepens as it fills.
-**What the session is doing** is motion and colour: a coral comet travelling the
-ring while it thinks, a solid dot in the middle while it waits for you, a fading
-dot once it has finished unread. A spinner could not have absorbed the context
-reading — its legibility came from the arc length itself oscillating, so length
-was already spoken for.
+The dial on the right of each block carries two readings at once, which only
+works because they sit on separate tracks. **How full the context window is** is
+a static arc from twelve o'clock, warm and deepening as it fills, with the figure
+in the middle and the word `Context` underneath. **What the session is doing** is
+motion on the track outside it: a comet travelling round while it thinks, the
+whole halo pulsing while it waits for you or while a finished turn stays unread.
+A spinner could not have absorbed the context reading — its legibility came from
+the arc length itself oscillating, so length was already spoken for.
 
 Working out *when* things happened turned out to be the fiddly part, and several
 faults have been fixed along the way: the turn's start is anchored to the user's

@@ -140,7 +140,10 @@ final class PetView: NSView {
     static let topRowH: CGFloat = 64
     /// The height with the hover detail open. Folded, the block is `blockHClosed` — the absolute
     /// context figure is detail, and detail belongs with the rest of the detail.
-    static let blockH: CGFloat = 44        // title + status + context line
+    // 48 rather than 44: the dial on the right is centred in the block, and its caption hangs below
+    // it, so the block has to be at least twice the dial's radius plus the caption — anything less
+    // and one of the two has to move off centre.
+    static let blockH: CGFloat = 48        // title + status + context line
     static let blockHClosed: CGFloat = 32  // title + status only
 
     /// The block height right now. Interpolated rather than switched, for the same reason the window
@@ -651,22 +654,36 @@ final class PetView: NSView {
         // not compete with the two dials for attention. Discoverability is covered by the
         // right-click menu, which carries the same item.
         if e > 0.5, hoverProgress > 0.02, !model.minimised {
-            // Top-left, sitting on the corner — the same place and shape macOS puts the close
-            // button on a notification. Corners are where dismissal controls live; the top-right of
-            // this card is directly above the right-hand dial and reads as part of it.
-            let r: CGFloat = 8.5
-            let c = NSPoint(x: card.minX + 11, y: card.minY + 11)
-            let btn = NSRect(x: c.x - r, y: c.y - r, width: r * 2, height: r * 2)
-            minimiseButtonRect = btn.insetBy(dx: -3, dy: -3)   // a slightly generous hit target
+            // Top-left, sitting on the corner, at the size AppKit itself uses. Two numbers taken
+            // from the system rather than judged by eye:
+            //
+            //   · a window's own miniaturise button is a **14pt** square, inset 9pt from the frame
+            //     edge (read straight off `NSWindow.standardWindowButton` on this machine). The
+            //     previous 17pt disc was simply larger than the control macOS ships, on a card a
+            //     quarter the width of a window.
+            //   · the bar inside it is **49% of the diameter long and 8.8% thick** — measured off
+            //     `minus.circle.fill` in SF Symbols, which is Apple drawing this exact glyph. The
+            //     previous bar was 47% long but 10% thick, and that extra weight is most of why it
+            //     read as heavy.
+            //
+            // The 9pt inset does not survive the trip to a 244pt card, so the button is placed by
+            // the corner instead: centred at (13, 13) inside a 26pt corner radius, its outermost
+            // point sits 25.4pt from the corner's centre of curvature against a radius of 26 — it
+            // beds into the curve the way a traffic light beds into a window's.
+            let d: CGFloat = 14
+            let c = NSPoint(x: card.minX + 13, y: card.minY + 13)
+            let btn = NSRect(x: c.x - d / 2, y: c.y - d / 2, width: d, height: d)
+            minimiseButtonRect = btn.insetBy(dx: -4, dy: -4)   // a slightly generous hit target
             withAlpha(hoverProgress) {
-                NSColor.labelColor.withAlphaComponent(0.13).setFill()
+                NSColor.labelColor.withAlphaComponent(0.11).setFill()
                 NSBezierPath(ovalIn: btn).fill()
                 let bar = NSBezierPath()
-                bar.move(to: NSPoint(x: c.x - 4, y: c.y))
-                bar.line(to: NSPoint(x: c.x + 4, y: c.y))
-                bar.lineWidth = 1.7
+                let half = d * 0.49 / 2
+                bar.move(to: NSPoint(x: c.x - half, y: c.y))
+                bar.line(to: NSPoint(x: c.x + half, y: c.y))
+                bar.lineWidth = d * 0.088
                 bar.lineCapStyle = .round
-                NSColor.labelColor.withAlphaComponent(0.62).setStroke()
+                NSColor.labelColor.withAlphaComponent(0.55).setStroke()
                 bar.stroke()
             }
         }
@@ -1097,7 +1114,7 @@ final class PetView: NSView {
 
         let title = s.title.isEmpty ? "Claude Code" : s.title
         drawText(title, in: NSRect(x: box.minX + 10, y: box.minY + 4,
-                                   width: box.width - 40, height: 14),
+                                   width: box.width - 48, height: 14),
                  font: .systemFont(ofSize: 10.5, weight: .semibold),
                  color: s.busy ? .labelColor : .secondaryLabelColor)
 
@@ -1121,7 +1138,7 @@ final class PetView: NSView {
             sub = L("Unread · ", "未读 · ") + agoText(s.finishedAt)
         }
         drawText(sub, in: NSRect(x: box.minX + 10, y: box.minY + 18,
-                                 width: box.width - 40, height: 13),
+                                 width: box.width - 48, height: 13),
                  font: .systemFont(ofSize: 9, weight: s.waiting ? .semibold : .regular),
                  color: subColor)
 
@@ -1134,79 +1151,85 @@ final class PetView: NSView {
         if s.ctxLimit > 0, s.ctxTokens > 0, hoverProgress > 0.02 {
             withAlpha(hoverProgress) {
                 drawText(L("Context \(tokenText(s.ctxTokens)) / \(tokenText(s.ctxLimit))", "上下文 \(tokenText(s.ctxTokens)) / \(tokenText(s.ctxLimit))"),
-                         in: NSRect(x: box.minX + 10, y: box.minY + 30, width: box.width - 44, height: 12),
+                         in: NSRect(x: box.minX + 10, y: box.minY + 32, width: box.width - 52, height: 12),
                          font: .systemFont(ofSize: 9.5), color: .labelColor)
             }
         }
 
-        drawSessionRing(s, center: NSPoint(x: box.maxX - 19, y: box.minY + 16), radius: 12)
+        // Centred in the block, not pinned near the top. It used to sit at a fixed 16pt from the
+        // top edge, which is the middle of a folded block but well above the middle of an open one,
+        // so opening the card left it hanging by the title instead of owning its own column.
+        let dialC = NSPoint(x: box.maxX - 20, y: box.minY + blockHNow / 2)
+        drawSessionRing(s, center: dialC, radius: 9.2)
+        // Naming it. The two dials at the top of the card say what they are with a word underneath;
+        // this one said nothing, so a bare "98" sitting in a ring had to be guessed at. It gets the
+        // same treatment, and only with the hover detail — the same moment the token figures appear
+        // on the left of this row, so the word and the numbers it belongs to arrive together.
+        if s.ctxLimit > 0, s.ctxTokens > 0, hoverProgress > 0.02 {
+            withAlpha(hoverProgress) {
+                drawText(L("Context", "上下文"),
+                         in: NSRect(x: dialC.x - 17, y: dialC.y + 13.4, width: 34, height: 10),
+                         font: .systemFont(ofSize: 7.5), color: .secondaryLabelColor, align: .center)
+            }
+        }
     }
 
-    /// The ring on the right of a session block. It carries **two** things at once, which is only
-    /// legible because they use different channels:
+    /// The dial on the right of a session block. It carries **two** things at once, which stays
+    /// legible only because they use separate channels:
     ///
-    ///   · how much of the context window is used — a **static** arc from twelve o'clock, in a
-    ///     neutral colour that deepens with the figure
-    ///   · what the session is doing — **motion** and **colour**: a coral comet travelling the ring
-    ///     while it thinks, or a dot in the middle when it is waiting or unread
-    ///
-    /// The previous spinner could not have absorbed the context reading: its readability came from
-    /// the arc length itself oscillating between 26° and 290°, so length was already taken. Freeing
-    /// length for the context figure means motion has to carry "thinking" on its own, and the comet
-    /// does that without ever being mistaken for the fill — it is short, it moves, and it is coral
-    /// where the fill is neutral.
-    /// The ring on the right of a session block. It carries **two** things at once, which is only
-    /// legible because they use different channels:
-    ///
-    ///   · how much of the context window is used — a **static** arc from twelve o'clock in a
-    ///     neutral colour that deepens as it fills, with the figure itself in the middle
-    ///   · what the session is doing — **motion and colour**, always coral, always on the ring
-    ///     itself so that it never competes with the number for the centre
+    ///   · how much of the context window is used — a **static** arc from twelve o'clock on the
+    ///     inner track, warm and deepening as it fills, with the figure itself in the middle
+    ///   · what the session is doing — **motion**, on an outer track of its own
     ///
     /// The old spinner could not have absorbed the context reading: its legibility came from the arc
     /// length oscillating between 26° and 290°, so length was already spoken for. Handing length to
     /// the context figure means motion has to carry "thinking" alone, and it can — the comet is
-    /// short, it moves, and it is coral where the fill is neutral.
+    /// short, it moves, and it runs on a ring the fill never touches.
     private func drawSessionRing(_ s: SessionActivity, center: NSPoint, radius r: CGFloat) {
-        let lw: CGFloat = 2.4
+        let lw: CGFloat = 2.2
+        let outer = r + 3          // the state track, clear of the fill
         drawArc(center: center, radius: r, lineWidth: lw,
                 from: 0, to: 360, color: NSColor.labelColor.withAlphaComponent(0.12))
 
         if s.ctxLimit > 0, s.ctxTokens > 0 {
             let frac = min(1, CGFloat(s.ctxTokens) / CGFloat(s.ctxLimit))
-            // Grey towards the primary text colour. Written this way rather than "grey to black" so
-            // that dark mode needs no special case: labelColor is near-white there, and the same
-            // expression reads as grey → white instead of fading into the background.
-            // The 0.8 power lifts the low end — at 10% a nearly invisible arc looks like a fault.
-            let c = NSColor.labelColor.withAlphaComponent(0.30 + 0.70 * pow(frac, 0.8))
             drawArc(center: center, radius: r, lineWidth: lw,
-                    from: -90, to: -90 + 360 * Double(frac), color: c, round: true)
-            // The figure sits in the middle. Without the % sign: "100%" needs 20pt and the clear
-            // space inside the ring is 21.6, which leaves nothing either side, whereas the ring it
-            // is printed inside already says what kind of number it is
-            drawText("\(Int((frac * 100).rounded()))",
+                    from: -90, to: -90 + 360 * Double(frac),
+                    color: .contextArc(pow(frac, 0.8)), round: true)
+            // The figure sits in the middle, without a % sign: the clear space inside the ring is
+            // 16.2pt and "100" alone needs 16.4 at 8pt, so there was never room for one. Three
+            // digits drop to 7pt (14.4pt, which clears); one and two digits stay at 8. A number
+            // printed inside an arc that is filling up does not need to be told it is a percentage.
+            let n = Int((frac * 100).rounded())
+            drawText("\(n)",
                      in: NSRect(x: center.x - 12, y: center.y - 5.5, width: 24, height: 11),
-                     font: .monospacedDigitSystemFont(ofSize: 8.5, weight: .semibold),
+                     font: .monospacedDigitSystemFont(ofSize: n >= 100 ? 7 : 8, weight: .semibold),
                      color: .labelColor, align: .center)
         }
 
-        // State lives on the ring, never in the middle — the middle belongs to the number now
+        // State lives on its **own** track outside the fill, never in the middle. It used to share
+        // the fill's radius, which worked only while the fill was neutral and the state was coral;
+        // now that both are warm, separating them by radius is what keeps them apart — one is
+        // static and complete, the other is short and moving.
         if s.waiting {
-            // Waiting for you: the whole ring breathes coral. Distinct from the comet by covering
+            // Waiting for you: the whole outer track breathes. Distinct from the comet by covering
             // the entire circle rather than travelling round it
             let pulse = 0.35 + 0.65 * (0.5 + 0.5 * sin(t * 3.4))
-            drawArc(center: center, radius: r + 2.6, lineWidth: 1.8,
+            drawArc(center: center, radius: outer, lineWidth: 1.5,
                     from: 0, to: 360, color: NSColor.coralDeep.withAlphaComponent(pulse))
         } else if s.busy {
-            // The comet, drawn last so it passes over the context fill rather than under it
             let head = -90 + Double(spinPhase) * 360
-            drawArc(center: center, radius: r, lineWidth: lw,
+            drawArc(center: center, radius: outer, lineWidth: 1.5,
                     from: head - 38, to: head, color: .coralLight, round: true)
         } else if !s.stalled {
-            // Unread: a single coral tick at twelve o'clock, breathing slowly
-            let pulse = 0.55 + 0.45 * easeInOut((sin(t * 1.6) + 1) / 2)
-            drawArc(center: center, radius: r + 2.6, lineWidth: 2.2,
-                    from: -104, to: -76, color: NSColor.coralLight.withAlphaComponent(pulse), round: true)
+            // Unread: the whole halo pulses, slowly. A single tick at twelve o'clock was too small a
+            // mark to notice on a block that is already dimmed for being finished — the thing it had
+            // to compete with was the entire rest of the card. Same shape as "waiting for you", told
+            // apart by pace and weight: this one is half the speed and never reaches full strength,
+            // so it reads as a reminder rather than a request.
+            let pulse = 0.30 + 0.40 * easeInOut((sin(t * 1.6) + 1) / 2)
+            drawArc(center: center, radius: outer, lineWidth: 1.7,
+                    from: 0, to: 360, color: NSColor.coralLight.withAlphaComponent(pulse))
         }
     }
 

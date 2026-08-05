@@ -185,7 +185,10 @@ public static class Usage
         return DateTimeOffset.UnixEpoch.AddSeconds(secs);
     }
 
-    private static readonly string[] WeekdayZh = { "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat" };
+    // Hard-coded rather than taken from a DateTimeFormatInfo, to avoid depending on ICU: Windows may
+    // be running with InvariantGlobalization switched on, and then zh-CN degrades to English.
+    private static readonly string[] WeekdayEn = { "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat" };
+    private static readonly string[] WeekdayZh = { "周日", "周一", "周二", "周三", "周四", "周五", "周六" };
 
     /// <summary>The compact reset time shown on the right-hand side of a limit row: "4h32m" / "Thu 14:00"</summary>
     public static string CompactReset(DateTimeOffset? d)
@@ -198,11 +201,9 @@ public static class Usage
             int total = (int)secs, h = total / 3600, m = total % 3600 / 60;
             return h > 0 ? $"{h}h{m}m" : $"{m}m";
         }
-        // The original was a DateFormatter with zh_CN and "EEE HH:mm". Here the Chinese weekday names
-        // are hard-coded to avoid depending on ICU: Windows may be running with InvariantGlobalization
-        // switched on, and then zh-CN degrades to English
         var local = d.Value.ToLocalTime();
-        return $"{WeekdayZh[(int)local.DayOfWeek]} {local.Hour:00}:{local.Minute:00}";
+        var day = (Language.Current == Lang.Zh ? WeekdayZh : WeekdayEn)[(int)local.DayOfWeek];
+        return $"{day} {local.Hour:00}:{local.Minute:00}";
     }
 
     public static string PrettyTier(string? raw)

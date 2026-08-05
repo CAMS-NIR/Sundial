@@ -287,30 +287,44 @@ periodically, which read as flickering. A blink is a single vertical contraction
 **The mouth's control points moved from ±2.6 to ±4.8**: too close together and
 the curve is dragged into a sharp-bottomed V; further out gives the rounded U.
 
-### The session ring
+### The session dial
 
-**One ring, two readings, two channels.** The arc *fill* is how much of the
-context window is used: static, from twelve o'clock, neutral, deepening as it
-fills. The *motion* is what the session is doing: a coral comet travelling the
-ring while it thinks, a solid dot in the middle while it waits for you.
+**One dial, two readings, two tracks.** The inner arc is how much of the context
+window is used: static, from twelve o'clock, deepening as it fills, with the
+figure itself in the middle. The outer track is what the session is doing: a
+comet travelling it while thinking, the whole halo pulsing while waiting for an
+answer or while a finished turn stays unread.
 
 The old spinner could not simply have gained a percentage. Its legibility came
 from the arc length oscillating between 26° and 290°, so length was already the
 "am I spinning" channel. Handing length to the context figure means motion has
 to carry thinking on its own — and it can, because the comet is short, moves,
-and is coral where the fill is neutral. Had both stayed on length, 5% context
+and runs on a ring the fill never touches. Had both stayed on length, 5% context
 would have been indistinguishable from an ordinary spinner, and 86% from a
 nearly closed ring wobbling.
 
-The fill colour is written as *grey towards `labelColor`*, not "grey to black",
-so dark mode needs no special case: `labelColor` is near-white there, and the
-same expression reads as grey → white instead of fading into the background.
-The 0.8 power lifts the low end — at 10% a nearly invisible arc looks like a
-fault rather than a reading.
+The fill was first written as *grey towards `labelColor`* — a neutral that needs
+no dark-mode special case. It read badly for a different reason: it was the one
+cold element on a card otherwise made of honey gold, apricot pink and terracotta,
+and at a high figure it became a near-complete black circle that pulled the eye
+off everything else. It now runs through the sun's own pair, `coralLight` →
+`sunDeepen`, which is the ramp the body itself darkens along when things get
+tight. Dark mode runs the same pair reversed and brighter at the top, because
+"deeper" cannot mean "darker" on a dark card — the arc would disappear exactly
+when it matters most. The 0.8 power lifts the low end: at 10% a nearly invisible
+arc looks like a fault rather than a reading.
 
-The separate progress bar is gone, and with it the repeated percentage: the ring
-says the same thing at a glance, which the number never did. That took the block
-from 50 pt to 44.
+Two measurements set the rest of it. The clear space inside the ring is 16.2 pt
+and `100` alone needs 16.4 at 8 pt, so a `%` sign was never going to fit; three
+digits drop to 7 pt and one or two stay at 8. And the dial carried no label at
+all, which is the reason a bare `98` in a ring had to be guessed at — the two
+dials at the top of the card say what they are with a word underneath, so this
+one now does too, appearing with the hover detail alongside the token figures it
+belongs to. Fitting a centred dial *and* its caption is what took the block from
+44 pt to 48.
+
+The separate progress bar is gone, and with it the repeated percentage: the dial
+says the same thing at a glance, which the number never did.
 
 ### Minimising
 
@@ -319,6 +333,20 @@ without that the pointer pops the card straight back open and the button appears
 to do nothing. It is persisted (`PetMinimised`): deliberately getting the card
 out of the way, only for it to return on the next launch, would be the app
 overriding a decision already made.
+
+**The button is not sized by eye.** A window's own miniaturise button is a 14 pt
+square inset 9 pt from the frame edge — read straight off
+`NSWindow.standardWindowButton` rather than looked up. The bar inside it is 49%
+of the diameter long and 8.8% thick, measured off `minus.circle.fill` in SF
+Symbols, which is Apple drawing this exact glyph. The first attempt was a 17 pt
+disc with a bar 10% thick: larger than the control the platform ships, on a card
+a quarter the width of a window, and heavier than the glyph it was imitating.
+
+The 9 pt inset does not survive the trip to a 198 pt card, so the button is
+placed by the corner instead. Centred at (13, 13) inside a 26 pt corner radius,
+its outermost point sits 25.4 pt from the corner's centre of curvature against a
+radius of 26 — it beds into the curve the way a traffic light beds into a title
+bar, which is what the inset was buying in the first place.
 
 Two things needed deciding rather than coding:
 

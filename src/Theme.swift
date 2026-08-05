@@ -47,6 +47,31 @@ extension NSColor {
     static let ringRight  = dyn2((0.776, 0.329, 0.376), (0.925, 0.545, 0.588))  // apricot pink
     static let glowRight  = dyn2((1.000, 0.620, 0.643), (1.000, 0.714, 0.733))
 
+    /// The context arc on a session block, at `frac` of the window used.
+    ///
+    /// Warm rather than neutral. It used to run grey → black, which was the one cold element on a card
+    /// otherwise made of honey gold, apricot pink and terracotta; at a high figure it turned into a
+    /// near-complete black circle and pulled the eye away from everything else. Running it through the
+    /// sun's own family keeps "deepens as it fills" while leaving it part of the card.
+    ///
+    /// "Deeper" cannot mean "darker" in both appearances: on a dark card a deep brick arc disappears
+    /// exactly when it matters most. So dark mode deepens by getting **brighter and more saturated**,
+    /// which is the same ramp read against its own background.
+    static func contextArc(_ frac: CGFloat) -> NSColor {
+        let f = min(1, max(0, frac))
+        return NSColor(name: nil) { ap in
+            let dark = ap.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            // Both ends are the sun's own colours, which is what makes the arc read as part of it:
+            // light mode runs coralLight → sunDeepen, the exact pair the body itself darkens along
+            // as things get tight. Dark mode runs the same pair in reverse and brighter at the top.
+            let lo: (CGFloat, CGFloat, CGFloat) = dark ? (0.769, 0.404, 0.271) : (0.914, 0.596, 0.451)
+            let hi: (CGFloat, CGFloat, CGFloat) = dark ? (0.976, 0.749, 0.612) : (0.545, 0.157, 0.114)
+            return NSColor(srgbRed: lo.0 + (hi.0 - lo.0) * f,
+                           green:   lo.1 + (hi.1 - lo.1) * f,
+                           blue:    lo.2 + (hi.2 - lo.2) * f, alpha: 1)
+        }
+    }
+
     private static func dyn2(_ light: (CGFloat, CGFloat, CGFloat),
                              _ dark: (CGFloat, CGFloat, CGFloat)) -> NSColor {
         NSColor(name: nil) { ap in
