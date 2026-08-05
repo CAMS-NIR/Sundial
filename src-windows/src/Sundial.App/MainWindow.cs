@@ -219,6 +219,7 @@ public sealed class MainWindow : Window
         _renderer = renderer;
         _settings = ShellSettings.Load();
         _model.DetailsPinned = _settings.DetailsPinned;
+        _model.Minimised = _settings.Minimised;
 
         Title = "Sundial";
         // The interface is drawn entirely by hand, so screen readers see nothing at all in the
@@ -749,6 +750,24 @@ public sealed class MainWindow : Window
             e.Handled = true;
             return;
         }
+        var miniRect = _renderer.MinimiseButtonRect;
+        if (miniRect.Width > 0 && miniRect.Contains(p))
+        {
+            ToggleMinimised();
+            e.Handled = true;
+            return;
+        }
+        // While minimised, a single click on the sun brings the card back. There is no card left to
+        // hit-test against, so the whole window is the target — and because BeginMoveDrag below
+        // swallows everything once it starts, this has to be decided before we get there. A press
+        // that turns into a drag therefore also restores; on a window this small that is the lesser
+        // evil compared with a click that appears to do nothing.
+        if (_model.Minimised)
+        {
+            ToggleMinimised();
+            e.Handled = true;
+            return;
+        }
         foreach (var (id, rect) in _renderer.BlockRects)
         {
             if (!rect.Contains(p)) continue;
@@ -821,6 +840,10 @@ public sealed class MainWindow : Window
         // An equivalent entry point besides hovering: you can look at the details without keeping
         // the mouse parked on the window
         new MenuEntry("Keep usage breakdown open", ToggleDetails, Checked: () => _model.DetailsPinned),
+        // Also here, not only as the button on the card: once minimised there is no card to put a
+        // button on, and a user who has not discovered that clicking the sun restores it would
+        // otherwise be stuck
+        new MenuEntry("Minimise to just the sun", ToggleMinimised, Checked: () => _model.Minimised),
         new MenuEntry("Open the web usage page", () => OpenUrl("https://claude.ai/settings/usage")),
         new MenuEntry("Bring the pet back to the bottom-right", EnsureVisible),
         new MenuEntry("", IsSeparator: true),
@@ -907,6 +930,16 @@ public sealed class MainWindow : Window
             item.Header = Decorate(entry);
             item.IsEnabled = entry.Enabled?.Invoke() ?? true;
         }
+    }
+
+    private void ToggleMinimised()
+    {
+        _model.Minimised = !_model.Minimised;
+        _settings.Minimised = _model.Minimised;
+        _settings.Save();
+        ApplyDesiredSize();
+        _surface.InvalidateVisual();
+        RefreshMenus();
     }
 
     private void ToggleDetails()
@@ -1599,6 +1632,10 @@ internal sealed class ShellSettings
     public int? WindowX { get; set; }
     public int? WindowY { get; set; }
     public bool DetailsPinned { get; set; }
+    /// <summary>Folded down to just the sun. Persisted like the other switches: if you deliberately
+    /// got the card out of the way, having it come back on the next launch would be the app
+    /// overriding a decision you already made.</summary>
+    public bool Minimised { get; set; }
     public bool SystemBlur { get; set; }
 
     private static string Dir => Path.Combine(

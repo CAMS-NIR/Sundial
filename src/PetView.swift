@@ -11,6 +11,9 @@ final class PetView: NSView {
     var onDoubleClick: (() -> Void)?
     var onHoverChange: ((Bool) -> Void)?
     var onMarkRead: ((String) -> Void)?
+    /// The minimise button was pressed, or the sun was clicked while minimised. The window layer
+    /// owns the flag and its persistence; this view only reports the gesture.
+    var onToggleMinimised: (() -> Void)?
 
     private var t: CGFloat = 0                 // animation clock
     private var blinkUntil: CGFloat = -1
@@ -20,6 +23,7 @@ final class PetView: NSView {
     private var ringShown: [CGFloat] = [0, 0]   // the two rings' currently displayed values (outer/inner), eased towards the target
     private var blockRects: [(String, NSRect)] = []  // for hit testing
     private var loginButtonRect: NSRect = .zero
+    private var minimiseButtonRect: NSRect = .zero
     /// Timed easing. Exponential smoothing (smoothStep) is always quick at the start and slow at the end:
     /// when collapsing, most of the distance is covered in the first 0.1 seconds and the last little bit
     /// grinds along slowly — it simply snaps out of existence rather than fading.
@@ -91,9 +95,10 @@ final class PetView: NSView {
     var resetLineHeight: CGFloat { soonestResetText() == nil ? 0 : PetView.resetLineH }
 
     private var expandTargetValue: CGFloat {
+        if model.minimised { return 0 }   // minimised wins over everything, hover included
         // Use blocks rather than visibleSessions: while a block is still fading out the window must not
         // collapse ahead of it, otherwise the two animations pile on top of each other and it still looks like a snap
-        (model.hovered || model.detailsPinned || !blocks.isEmpty
+        return (model.hovered || model.detailsPinned || !blocks.isEmpty
             || model.loading || (model.rows.isEmpty && model.errorMsg != nil)) ? 1 : 0
     }
     var onHoverProgress: (() -> Void)?               // per-frame callback, drives the window height
@@ -133,7 +138,7 @@ final class PetView: NSView {
     }
 
     static let topRowH: CGFloat = 64
-    static let blockH: CGFloat = 50        // title + status + context progress bar
+    static let blockH: CGFloat = 44        // title + status + context line (the bar folded into the ring)
     static let blockGap: CGFloat = 6
     static let maxBlocks = 4
     static let petScale: CGFloat = 0.44
@@ -403,13 +408,25 @@ final class PetView: NSView {
             onDoubleClick?()          // the same action as a double click: start logging in
             return
         }
+        if !minimiseButtonRect.isEmpty, minimiseButtonRect.contains(p) {
+            onToggleMinimised?()
+            return
+        }
         for (id, rect) in blockRects where rect.contains(p) {
             if model.sessions.first(where: { $0.id == id })?.unread == true {
                 onMarkRead?(id)
                 return
             }
         }
+        // While minimised, a single click on the sun brings the card back. performDrag blocks until
+        // the drag finishes, so comparing the window origin across it is what separates a click from
+        // a drag: a press that moved the window was a drag and must not also restore.
+        let before = window?.frame.origin
         window?.performDrag(with: event)
+        if model.minimised, let b = before, let a = window?.frame.origin,
+           abs(a.x - b.x) < 2, abs(a.y - b.y) < 2 {
+            onToggleMinimised?()
+        }
     }
     override func rightMouseDown(with event: NSEvent) { onRightClick?(event) }
 
@@ -586,6 +603,7 @@ final class PetView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         blockRects.removeAll()
+        minimiseButtonRect = .zero
         loginButtonRect = .zero   // without resetting it, the moment a session block appears it steps on the login hot zone left over from the previous frame
         // The glass has been hidden, so add an opaque backing panel here to keep things readable.
         // But likewise do not draw it when fully collapsed — sitting idle there is only a sun, and no content that needs a panel behind it
@@ -619,6 +637,28 @@ final class PetView: NSView {
         if g > 0.004, !model.rows.isEmpty {
             withAlpha(g) { drawGauges(in: card, midY: rowMidY, scale: 0.84 + 0.16 * g) }
         }
+        // Minimise button, top-right. It fades in with the hover detail rather than sitting there
+        // permanently: the top row is already tight, and a control needed only occasionally should
+        // not compete with the two dials for attention. Discoverability is covered by the
+        // right-click menu, which carries the same item.
+        if e > 0.5, hoverProgress > 0.02, !model.minimised {
+            let r: CGFloat = 7.5
+            let c = NSPoint(x: card.maxX - 15, y: card.minY + 12)
+            let btn = NSRect(x: c.x - r, y: c.y - r, width: r * 2, height: r * 2)
+            minimiseButtonRect = btn.insetBy(dx: -3, dy: -3)   // a slightly generous hit target
+            withAlpha(hoverProgress) {
+                NSColor.labelColor.withAlphaComponent(0.10).setFill()
+                NSBezierPath(ovalIn: btn).fill()
+                let bar = NSBezierPath()
+                bar.move(to: NSPoint(x: c.x - 3.6, y: c.y))
+                bar.line(to: NSPoint(x: c.x + 3.6, y: c.y))
+                bar.lineWidth = 1.6
+                bar.lineCapStyle = .round
+                NSColor.labelColor.withAlphaComponent(0.62).setStroke()
+                bar.stroke()
+            }
+        }
+
         guard e > 0.01 else { return }   // when fully collapsed only the sun is left
 
         var y = card.minY + 10 + PetView.topRowH + 2
@@ -710,14 +750,27 @@ final class PetView: NSView {
         let s = PetView.petScale
         let cx0 = center.x, cy0 = center.y
         let stress = CGFloat(model.maxPercent) / 100.0
+        // Someone is waiting on an answer and there is no card to say so. When expanded the glass
+        // takes a warm tint for this; folded (which is the whole point of minimising) that channel
+        // does not exist, so the sun itself has to carry it — a slow brightening pulse. Gated on the
+        // card being closed: while it is open the tinted glass already says it, and two signals for
+        // one state is just noise.
+        let waitingPulse: CGFloat = (expandProgress < 0.5 && model.sessions.contains { $0.waiting })
+            ? 0.5 + 0.5 * sin(t * 2.6) : 0
         // With no session running it dozes: drab and grey, eyes shut, zzz drifting off
         let sT = sleepT                       // 0 = awake, 1 = dozing; everything below interpolates by it
         let breathe = 1 + 0.022 * sin(breathPhase)
 
-        let light = NSColor.coralLight.blended(withFraction: sT, of: .sleepLight)
+        var light = NSColor.coralLight.blended(withFraction: sT, of: .sleepLight)
             ?? NSColor.coralLight
-        let deep = NSColor.coralDeep.blended(withFraction: sT, of: .sleepDeep)
+        var deep = NSColor.coralDeep.blended(withFraction: sT, of: .sleepDeep)
             ?? NSColor.coralDeep
+        if waitingPulse > 0.001 {
+            // Pulse towards the glow colour rather than towards white: white would read as the sun
+            // being washed out, whereas brightening within its own family reads as it lighting up
+            light = light.blended(withFraction: waitingPulse * 0.55, of: .glowLeft) ?? light
+            deep = deep.blended(withFraction: waitingPulse * 0.40, of: .glowLeft) ?? deep
+        }
         // The body darkens continuously with usage. It used to change abruptly only past 75%, which meant
         // there were really only two steps; now it deepens all the way along, so a glance at the colour
         // tells you roughly how much has been used without reading a number.
@@ -1054,75 +1107,66 @@ final class PetView: NSView {
                  font: .systemFont(ofSize: 9, weight: s.waiting ? .semibold : .regular),
                  color: subColor)
 
-        // Context usage: one line of text + a thin progress bar
+        // Context usage is now carried by the ring on the right; all that is left here is the
+        // absolute figure. The percentage used to be repeated as text next to it, but the ring
+        // already says it — and the ring says it at a glance, which the number never did.
         if s.ctxLimit > 0, s.ctxTokens > 0 {
-            let frac = min(1, CGFloat(s.ctxTokens) / CGFloat(s.ctxLimit))
-            let pct = Int((frac * 100).rounded())
-            let barY = box.minY + PetView.blockH - 8
-            let barX = box.minX + 10
-            let barW = box.width - 20
-
             drawText("Context \(tokenText(s.ctxTokens)) / \(tokenText(s.ctxLimit))",
-                     in: NSRect(x: barX, y: barY - 12, width: barW - 30, height: 11),
+                     in: NSRect(x: box.minX + 10, y: box.minY + 30, width: box.width - 40, height: 12),
                      font: .systemFont(ofSize: 9.5), color: .labelColor)
-            drawText("\(pct)%",
-                     in: NSRect(x: barX + barW - 30, y: barY - 12, width: 30, height: 11),
-                     font: .monospacedDigitSystemFont(ofSize: 9.5, weight: .medium),
-                     color: .labelColor, align: .right)
-
-            let track = NSBezierPath(roundedRect: NSRect(x: barX, y: barY, width: barW, height: 3),
-                                     xRadius: 1.5, yRadius: 1.5)
-            NSColor.labelColor.withAlphaComponent(0.14).setFill()
-            track.fill()
-            if frac > 0.004 {
-                let fill = NSBezierPath(roundedRect: NSRect(x: barX, y: barY,
-                                                            width: max(3, barW * frac), height: 3),
-                                        xRadius: 1.5, yRadius: 1.5)
-                // The context progress bar has been folded into the coral family and no longer has a
-                // green/amber/red set of its own. Past 60% it is pushed towards a deep brick red, so there
-                // is still a "nearly full" hint, but it uses the very colour the sun's body darkens towards
-                // and introduces no new hue
-                let heat = max(0, min(1, (frac - 0.6) / 0.4))
-                (NSColor.coralDeep.blended(withFraction: heat * 0.75, of: .sunDeepen)
-                    ?? .coralDeep).setFill()
-                fill.fill()
-            }
         }
 
-        let cx = box.maxX - 15
-        let cy = box.minY + 15
-        if s.waiting {
-            // Waiting for input: a breathing solid dot, which reads more like "waiting for you" than a spinner does
-            let pulse = 0.55 + 0.45 * (0.5 + 0.5 * sin(t * 3.4))
-            // Waiting for input uses the coral family too: what sets it apart from "running" is the shape
-            // (a solid breathing dot vs a spinner), so there is no need for yet another hue
-            NSColor.coralDeep.withAlphaComponent(pulse).setFill()
-            let rr: CGFloat = 5
-            NSBezierPath(ovalIn: NSRect(x: cx - rr, y: cy - rr,
-                                        width: rr * 2, height: rr * 2)).fill()
-        } else if s.busy {
-            drawSpinner(center: NSPoint(x: cx, y: cy), radius: 7)
-        } else {
-            // Unread dot, breathing slowly; one click and it is gone
-            let pulse = 0.55 + 0.45 * easeInOut((sin(t * 1.6) + 1) / 2)
-            NSColor.coralLight.withAlphaComponent(pulse).setFill()
-            NSBezierPath(ovalIn: NSRect(x: cx - 4, y: cy - 4, width: 8, height: 8)).fill()
-        }
+        drawSessionRing(s, center: NSPoint(x: box.maxX - 17, y: box.midY), radius: 9)
     }
 
-    /// A spinner that loops seamlessly: the arc length cycles between growing and shrinking, the phase is normalised, and it is perfectly continuous where it wraps
-    private func drawSpinner(center: NSPoint, radius: CGFloat) {
-        drawArc(center: center, radius: radius, lineWidth: 2.2,
-                from: 0, to: 360, color: NSColor.labelColor.withAlphaComponent(0.14))
+    /// The ring on the right of a session block. It carries **two** things at once, which is only
+    /// legible because they use different channels:
+    ///
+    ///   · how much of the context window is used — a **static** arc from twelve o'clock, in a
+    ///     neutral colour that deepens with the figure
+    ///   · what the session is doing — **motion** and **colour**: a coral comet travelling the ring
+    ///     while it thinks, or a dot in the middle when it is waiting or unread
+    ///
+    /// The previous spinner could not have absorbed the context reading: its readability came from
+    /// the arc length itself oscillating between 26° and 290°, so length was already taken. Freeing
+    /// length for the context figure means motion has to carry "thinking" on its own, and the comet
+    /// does that without ever being mistaken for the fill — it is short, it moves, and it is coral
+    /// where the fill is neutral.
+    private func drawSessionRing(_ s: SessionActivity, center: NSPoint, radius r: CGFloat) {
+        let lw: CGFloat = 2.6
+        drawArc(center: center, radius: r, lineWidth: lw,
+                from: 0, to: 360, color: NSColor.labelColor.withAlphaComponent(0.12))
 
-        // The tail angle covers exactly 360° per cycle and the arc length oscillates by cosine between 26°
-        // and 290° (with zero derivative at both ends), so where the phase wraps round both the angle and
-        // the arc length are perfectly continuous and join up.
-        let p = Double(spinPhase)
-        let sweep = 26 + 264 * (1 - cos(2 * .pi * p)) / 2
-        let tail = -90 + p * 360        // increasing angles = clockwise on screen (this view is isFlipped)
-        drawArc(center: center, radius: radius, lineWidth: 2.2,
-                from: tail, to: tail + sweep, color: .coralLight, round: true)
+        if s.ctxLimit > 0, s.ctxTokens > 0 {
+            let frac = min(1, CGFloat(s.ctxTokens) / CGFloat(s.ctxLimit))
+            // Grey towards the primary text colour. Written this way rather than "grey to black" so
+            // that dark mode takes care of itself: labelColor is near-white there, so the same
+            // expression reads as grey → white instead of fading into the background.
+            // The 0.8 power lifts the low end — at 10% a nearly invisible arc would look like a fault.
+            let c = NSColor.labelColor.withAlphaComponent(0.30 + 0.70 * pow(frac, 0.8))
+            drawArc(center: center, radius: r, lineWidth: lw,
+                    from: -90, to: -90 + 360 * Double(frac), color: c, round: true)
+        }
+
+        if s.waiting {
+            // Waiting for you: a solid breathing dot in the middle. Distinct from the comet by being
+            // still, central, and a deeper coral
+            let pulse = 0.55 + 0.45 * (0.5 + 0.5 * sin(t * 3.4))
+            NSColor.coralDeep.withAlphaComponent(pulse).setFill()
+            let rr: CGFloat = 3.6
+            NSBezierPath(ovalIn: NSRect(x: center.x - rr, y: center.y - rr,
+                                        width: rr * 2, height: rr * 2)).fill()
+        } else if s.busy {
+            // The comet. Drawn last so it passes over the context fill rather than under it
+            let head = -90 + Double(spinPhase) * 360
+            drawArc(center: center, radius: r, lineWidth: lw,
+                    from: head - 38, to: head, color: .coralLight, round: true)
+        } else if !s.stalled {
+            let pulse = 0.55 + 0.45 * easeInOut((sin(t * 1.6) + 1) / 2)
+            NSColor.coralLight.withAlphaComponent(pulse).setFill()
+            NSBezierPath(ovalIn: NSRect(x: center.x - 3.2, y: center.y - 3.2,
+                                        width: 6.4, height: 6.4)).fill()
+        }
     }
 
     // MARK: Hover details
@@ -1166,22 +1210,25 @@ final class PetView: NSView {
             c.setFill()
             NSBezierPath(ovalIn: NSRect(x: innerX, y: y + 4, width: 6, height: 6)).fill()
             NSBezierPath(rect: bounds).setClip()
-            // 80pt, not 65. The Chinese labels fitted; "Weekly · Fable" did not, and truncating to
+            // 86pt of columns on the right, 80 of which is the two numbers plus a 4pt gap between
+            // them. An earlier pass squeezed them to 81 and the gap vanished: both columns are right
+            // aligned and adjacent, so "Sat 09:38" filling its box ran straight into "12%".
+            // 80pt for the label, not 65. The Chinese labels fitted; "Weekly · Fable" did not, and truncating to
             // "Weekly · Fa…" loses the one thing that row is there to tell you — which model it is.
             // The width comes out of the two number columns, which had spare room: "100%" needs 26pt
             // of the 40 it had, and "Fri 18:27" needs 42 of 54
             drawText(row.label,
-                     in: NSRect(x: innerX + 11, y: y, width: innerW - 11 - 81, height: 14),
+                     in: NSRect(x: innerX + 11, y: y, width: innerW - 11 - 86, height: 14),
                      font: .systemFont(ofSize: 9.5),
                      color: .secondaryLabelColor)
             // The numbers no longer change colour with usage: colour no longer carries the "how full"
             // information, that is the job of the arc length and of the number itself
             drawText("\(row.percent)%",
-                     in: NSRect(x: innerX + innerW - 81, y: y, width: 34, height: 14),
+                     in: NSRect(x: innerX + innerW - 86, y: y, width: 32, height: 14),
                      font: .monospacedDigitSystemFont(ofSize: 9.5, weight: .medium),
                      color: .labelColor, align: .right)
             drawText(compactReset(row.resetAt),
-                     in: NSRect(x: innerX + innerW - 47, y: y, width: 47, height: 14),
+                     in: NSRect(x: innerX + innerW - 52, y: y, width: 52, height: 14),
                      font: .systemFont(ofSize: 9.5),
                      color: .secondaryLabelColor, align: .right)
             y += 15

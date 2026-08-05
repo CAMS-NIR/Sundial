@@ -24,7 +24,7 @@ public sealed class PetRenderer
     // MARK: Shape constants (numbers tuned over and over in the macOS version — don't change them on a whim)
 
     public const double TopRowH = 64;
-    public const double BlockH = 50;          // title + status + context progress bar
+    public const double BlockH = 44;          // title + status + context line (the bar folded into the ring)
     public const double BlockGap = 6;
     public const int MaxBlocks = PetModel.MaxBlocks;
     public const double PetScale = 0.44;
@@ -55,6 +55,7 @@ public sealed class PetRenderer
     private readonly double[] _ringShown = new double[2];   // the two rings' currently displayed values (outer/inner), eased towards the target
     private readonly List<(string Id, Rect Rect)> _blockRects = new(); // for hit testing
     private Rect _loginButtonRect;
+    private Rect _minimiseButtonRect;
 
     private Point? _mouse;                    // the gravity source after filtering by the radius of effect (view coordinates)
     private Point _petCenter;                 // the sun's centre in the previous frame
@@ -90,6 +91,9 @@ public sealed class PetRenderer
 
     /// <summary>Hit rectangle for the login button; default when it hasn't been drawn.</summary>
     public Rect LoginButtonRect => _loginButtonRect;
+
+    /// <summary>The minimise button's hit rectangle; default when it is not drawn.</summary>
+    public Rect MinimiseButtonRect => _minimiseButtonRect;
 
     /// <summary>When the exhausted limit lifts again. **This line is only drawn once a limit really is maxed out (the sun turns into ✖)** —
     /// while there is headroom left, "how long until it resets" is a pointless thing to say: it costs a line and makes the card taller;
@@ -145,6 +149,7 @@ public sealed class PetRenderer
     }
 
     private double ExpandTargetValue =>
+        _model.Minimised ? 0 :   // minimised wins over everything, hover included
         // Use blocks rather than VisibleSessions: the window mustn't collapse while blocks are still fading out,
         // otherwise the two animations pile up and it still looks like a snap
         (_model.Hovered || _model.DetailsPinned || _blocks.Count > 0
@@ -475,6 +480,7 @@ public sealed class PetRenderer
     public void Render(DrawingContext ctx, Rect bounds)
     {
         _blockRects.Clear();
+        _minimiseButtonRect = default;
         _loginButtonRect = default;
         // Matches PetView.drawCardEdge() in the macOS version
 
@@ -521,6 +527,24 @@ public sealed class PetRenderer
             using (ctx.PushOpacity(g))
                 DrawGauges(ctx, card, rowMidY, 0.84 + 0.16 * g);
         }
+        // Minimise button, top-right. It fades in with the hover detail rather than sitting there
+        // permanently: the top row is already tight, and a control needed only occasionally should
+        // not compete with the two dials for attention. Discoverability is covered by the
+        // right-click menu, which carries the same item.
+        if (e > 0.5 && HoverProgress > 0.02 && !_model.Minimised)
+        {
+            const double br = 7.5;
+            var bc = new Point(card.Right - 15, card.Y + 12);
+            var btn = new Rect(bc.X - br, bc.Y - br, br * 2, br * 2);
+            _minimiseButtonRect = btn.Inflate(3);   // a slightly generous hit target
+            ctx.DrawEllipse(new SolidColorBrush(
+                Theme.WithAlpha(Theme.LabelColor, 0.10 * HoverProgress)), null, bc, br, br);
+            ctx.DrawLine(new Pen(new SolidColorBrush(
+                    Theme.WithAlpha(Theme.LabelColor, 0.62 * HoverProgress)), 1.6)
+                    { LineCap = PenLineCap.Round },
+                new Point(bc.X - 3.6, bc.Y), new Point(bc.X + 3.6, bc.Y));
+        }
+
         if (e <= 0.01) return;   // fully collapsed leaves nothing but the sun
 
         var y = card.Y + 10 + TopRowH + 2;
@@ -604,6 +628,19 @@ public sealed class PetRenderer
 
         var light = Sundial.App.Theme.Blend(Theme.CoralLight, sT, Theme.SleepLight);
         var deep = Sundial.App.Theme.Blend(Theme.CoralDeep, sT, Theme.SleepDeep);
+        // Someone is waiting on an answer and there is no card to say so. When expanded the panel
+        // takes a warm tint for this; folded — which is the whole point of minimising — that channel
+        // does not exist, so the sun itself has to carry it, as a slow brightening pulse. Gated on
+        // the card being closed: while it is open the tinted panel already says it, and two signals
+        // for one state is just noise.
+        if (ExpandProgress < 0.5 && _model.Sessions.Any(x => x.Waiting))
+        {
+            var wp = 0.5 + 0.5 * Math.Sin(_t * 2.6);
+            // Towards the glow colour rather than towards white: white would read as the sun being
+            // washed out, whereas brightening within its own family reads as it lighting up
+            light = Sundial.App.Theme.Blend(light, wp * 0.55, Theme.GlowLeft);
+            deep = Sundial.App.Theme.Blend(deep, wp * 0.40, Theme.GlowLeft);
+        }
         // The body darkens continuously with usage. It used to change abruptly only past 75%, which is really just two steps;
         // now it deepens all the way along, so a glance at the colour tells you roughly how much has gone, without reading numbers.
         // Raised to the power 1.5: at low usage the colour barely shifts, and only high up does it darken noticeably
@@ -989,75 +1026,72 @@ public sealed class PetRenderer
         Theme.DrawText(ctx, sub, new Rect(box.X + 10, box.Y + 18, box.Width - 40, 13),
                        9, s.Waiting ? FontWeight.SemiBold : FontWeight.Normal, subColor);
 
-        // Context usage: one line of text plus a thin progress bar
+        // Context usage is now carried by the ring on the right; all that is left here is the
+        // absolute figure. The percentage used to be repeated as text beside it, but the ring says
+        // it already — and says it at a glance, which the number never did.
+        if (s.CtxLimit > 0 && s.CtxTokens > 0)
+        {
+            Theme.DrawText(ctx, $"Context {Format.Tokens(s.CtxTokens)} / {Format.Tokens(s.CtxLimit)}",
+                           new Rect(box.X + 10, box.Y + 30, box.Width - 40, 12),
+                           9.5, FontWeight.Normal, Theme.LabelColor);
+        }
+
+        DrawSessionRing(ctx, s, new Point(box.Right - 17, box.Y + BlockH / 2), 9);
+    }
+
+    /// <summary>
+    /// The ring on the right of a session block. It carries <b>two</b> things at once, which is only
+    /// legible because they use different channels:
+    /// <list type="bullet">
+    /// <item>how much of the context window is used — a <b>static</b> arc from twelve o'clock, in a
+    /// neutral colour that deepens with the figure</item>
+    /// <item>what the session is doing — <b>motion</b> and <b>colour</b>: a coral comet travelling the
+    /// ring while it thinks, or a dot in the middle when waiting or unread</item>
+    /// </list>
+    /// The old spinner could not have absorbed the context reading: its readability came from the arc
+    /// length itself oscillating between 26° and 290°, so length was already spoken for. Freeing length
+    /// for the context figure means motion has to carry "thinking" alone, and the comet does that
+    /// without ever being mistaken for the fill — it is short, it moves, and it is coral where the
+    /// fill is neutral.
+    /// </summary>
+    private void DrawSessionRing(DrawingContext ctx, SessionActivity s, Point center, double r)
+    {
+        const double lw = 2.6;
+        DrawArc(ctx, center, r, lw, 0, 360, Theme.WithAlpha(Theme.LabelColor, 0.12));
+
         if (s.CtxLimit > 0 && s.CtxTokens > 0)
         {
             var frac = Math.Min(1, (double)s.CtxTokens / s.CtxLimit);
-            // Swift's .rounded() rounds half away from zero; C#'s Math.Round defaults to banker's rounding
-            // (half to even), so an exact half such as 49.5% differs by 1 between the two — it has to be specified explicitly
-            var pct = (int)Math.Round(frac * 100, MidpointRounding.AwayFromZero);
-            var barY = box.Y + BlockH - 8;
-            var barX = box.X + 10;
-            var barW = box.Width - 20;
-
-            Theme.DrawText(ctx, $"Context {Format.Tokens(s.CtxTokens)} / {Format.Tokens(s.CtxLimit)}",
-                           new Rect(barX, barY - 12, barW - 30, 11),
-                           9.5, FontWeight.Normal, Theme.LabelColor);
-            Theme.DrawText(ctx, $"{pct}%", new Rect(barX + barW - 30, barY - 12, 30, 11),
-                           9.5, FontWeight.Medium, Theme.LabelColor,
-                           TextAlignment.Right, monoDigits: true);
-
-            ctx.DrawRectangle(new SolidColorBrush(Theme.WithAlpha(Theme.LabelColor, 0.14)), null,
-                              new Rect(barX, barY, barW, 3), 1.5, 1.5);
-            if (frac > 0.004)
-            {
-                // The context progress bar has been folded into the coral family; it no longer has its own green/amber/red set.
-                // Past 60% it is pushed towards deep brick red, so there is still a "nearly full" cue,
-                // but it uses the same colour the sun's body darkens towards, rather than introducing a new hue
-                var heat = Math.Clamp((frac - 0.6) / 0.4, 0, 1);
-                var barCol = Sundial.App.Theme.Blend(Theme.CoralDeep, heat * 0.75, Theme.SunDeepen);
-                ctx.DrawRectangle(new SolidColorBrush(barCol), null,
-                                  new Rect(barX, barY, Math.Max(3, barW * frac), 3), 1.5, 1.5);
-            }
+            // Grey towards the primary text colour. Written this way rather than "grey to black" so
+            // dark mode takes care of itself: LabelColor is near-white there, so the same expression
+            // reads as grey → white instead of fading into the background.
+            // The 0.8 power lifts the low end — at 10% a nearly invisible arc would look like a fault.
+            var col = Theme.WithAlpha(Theme.LabelColor, 0.30 + 0.70 * Math.Pow(frac, 0.8));
+            DrawArc(ctx, center, r, lw, -90, -90 + 360 * frac, col, round: true);
         }
 
-        var cx = box.Right - 15;
-        var cy = box.Y + 15;
         if (s.Waiting)
         {
-            // Waiting for input: a breathing solid dot, which reads more like "waiting for you" than a spinner does
+            // Waiting for you: a solid breathing dot in the middle. Distinct from the comet by being
+            // still, central, and a deeper coral
             var pulse = 0.55 + 0.45 * (0.5 + 0.5 * Math.Sin(_t * 3.4));
-            // Waiting for input is coral as well: what separates it from "running" is the shape (a solid breathing dot
-            // vs a spinner), so there's no need for yet another hue
             ctx.DrawEllipse(new SolidColorBrush(Theme.WithAlpha(Theme.CoralDeep, pulse)), null,
-                            new Point(cx, cy), 5, 5);
+                            center, 3.6, 3.6);
         }
         else if (s.Busy)
         {
-            DrawSpinner(ctx, new Point(cx, cy), 7);
+            // The comet. Drawn last so it passes over the context fill rather than under it
+            var head = -90 + _spinPhase * 360;
+            DrawArc(ctx, center, r, lw, head - 38, head, Theme.CoralLight, round: true);
         }
-        else
+        else if (!s.Stalled)
         {
-            // The unread dot, breathing slowly; one click and it's gone
             var pulse = 0.55 + 0.45 * Theme.EaseInOut((Math.Sin(_t * 1.6) + 1) / 2);
             ctx.DrawEllipse(new SolidColorBrush(Theme.WithAlpha(Theme.CoralLight, pulse)), null,
-                            new Point(cx, cy), 4, 4);
+                            center, 3.2, 3.2);
         }
     }
 
-    /// <summary>A spinner that joins up seamlessly: the arc length cycles between growing and shrinking, the phase is normalised, and it is perfectly continuous where it wraps.</summary>
-    private void DrawSpinner(DrawingContext ctx, Point center, double radius)
-    {
-        DrawArc(ctx, center, radius, 2.2, 0, 360, Theme.WithAlpha(Theme.LabelColor, 0.14));
-
-        // The tail angle covers exactly 360° per cycle and the arc length oscillates between 26° and 290° along a
-        // cosine (derivative 0 at both ends), so where the phase wraps both the angle and the arc length are perfectly
-        // continuous and join up.
-        var p = _spinPhase;
-        var sweep = 26 + 264 * (1 - Math.Cos(2 * Math.PI * p)) / 2;
-        var tail = -90 + p * 360;        // increasing angle = clockwise on screen
-        DrawArc(ctx, center, radius, 2.2, tail, tail + sweep, Theme.CoralLight, round: true);
-    }
 
     // MARK: Hover details
 

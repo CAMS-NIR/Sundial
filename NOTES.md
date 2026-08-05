@@ -30,9 +30,9 @@ needs to be slow enough that it does not look like the thing was erased.
    │  ◯ left dial   ☀ sun   ◯ right dial │  ← sun centred, dials on either side
    │                              │      (x = card width ×0.17 and ×0.83)
    │  ┌────────────────────────┐  │
-   │  │ session title    ◜ spin │  │   ← session block, 50 pt tall, 6 pt apart, max 4
-   │  │ Thinking · 3m 12s       │  │
-   │  │ Context 468.2k/1.0M  47%│  │
+   │  │ session title     ◔ ring│  │   ← session block, 44 pt tall, 6 pt apart, max 4
+   │  │ Thinking · 3m 12s       │  │      the ring = context fill + state
+   │  │ Context 468.2k / 1.0M   │  │
    │  └────────────────────────┘  │
    │                              │
    │  Claude usage          Max   │   ← hover detail: one line per allowance
@@ -136,7 +136,7 @@ sun means re-running it by hand.
 PetView.compactSide  = 88     // folded window side length
 AppDelegate.winW     = 198    // expanded window width
 PetView.topRowH      = 64     // top row (sun + both dials)
-PetView.blockH       = 50     // session block height; blockGap = 6; maxBlocks = 4
+PetView.blockH       = 44     // session block height; blockGap = 6; maxBlocks = 4
 PetView.cardRadius   = 26     // matches AppDelegate.expandedRadius
 PetView.rayCount     = 9      // number of rays, odd
 PetView.rayMaxPull   = 13     // maximum extension from cursor gravity
@@ -286,6 +286,52 @@ periodically, which read as flickering. A blink is a single vertical contraction
 
 **The mouth's control points moved from ±2.6 to ±4.8**: too close together and
 the curve is dragged into a sharp-bottomed V; further out gives the rounded U.
+
+### The session ring
+
+**One ring, two readings, two channels.** The arc *fill* is how much of the
+context window is used: static, from twelve o'clock, neutral, deepening as it
+fills. The *motion* is what the session is doing: a coral comet travelling the
+ring while it thinks, a solid dot in the middle while it waits for you.
+
+The old spinner could not simply have gained a percentage. Its legibility came
+from the arc length oscillating between 26° and 290°, so length was already the
+"am I spinning" channel. Handing length to the context figure means motion has
+to carry thinking on its own — and it can, because the comet is short, moves,
+and is coral where the fill is neutral. Had both stayed on length, 5% context
+would have been indistinguishable from an ordinary spinner, and 86% from a
+nearly closed ring wobbling.
+
+The fill colour is written as *grey towards `labelColor`*, not "grey to black",
+so dark mode needs no special case: `labelColor` is near-white there, and the
+same expression reads as grey → white instead of fading into the background.
+The 0.8 power lifts the low end — at 10% a nearly invisible arc looks like a
+fault rather than a reading.
+
+The separate progress bar is gone, and with it the repeated percentage: the ring
+says the same thing at a glance, which the number never did. That took the block
+from 50 pt to 44.
+
+### Minimising
+
+`model.minimised` overrides everything in `expandTargetValue`, hover included —
+without that the pointer pops the card straight back open and the button appears
+to do nothing. It is persisted (`PetMinimised`): deliberately getting the card
+out of the way, only for it to return on the next launch, would be the app
+overriding a decision already made.
+
+Two things needed deciding rather than coding:
+
+- **A session waiting on an answer.** Expanded, the glass takes a warm tint for
+  this; minimised there is no glass. Rather than force the card open — which
+  would make "minimised" mean nothing — the sun itself pulses towards its glow
+  colour. The reminder still arrives; the decision is not overridden.
+- **Click versus drag.** `performDrag` blocks until the drag ends, so on macOS
+  the window origin is compared across it: unchanged means it was a click, and
+  only then does the card come back. Windows cannot do this — `BeginMoveDrag`
+  swallows everything once it has started — so there a press restores whether or
+  not it turns into a drag. On a window this small that is the lesser evil
+  against a click that appears to do nothing.
 
 ### Animation and window resizing
 

@@ -122,15 +122,23 @@ Even folded down to a single sun, a glance tells you where things stand.
 One block per running Claude Code session, up to four:
 
 - Session title, what it is doing, and **how long the current turn has been running**.
-- **Context consumption** (for instance `824.8k / 1.0M`, 82%). The bar deepens
-  towards red past 60%; when it nears the top, it is time to start a fresh
-  session. This figure needs no subscription.
+- **Context consumption** (for instance `824.8k / 1.0M`), read from the ring on
+  the right of the block. This figure needs no subscription.
 - Status: `Thinking` · `Waiting for you` (a session asking a question **jumps to
   the top**) · `Background task running` · `Unread · just finished` ·
   `Not responding · no update for N min`.
 - Click a block to dismiss the "finished but unread" marker.
 - Blocks **roll** in and out, with the ones below sliding up in step, rather than
   appearing and vanishing on the spot.
+
+The ring on the right of each block carries two readings at once, which only
+works because they use different channels. **How full the context window is** is
+a static arc from twelve o'clock, in a neutral colour that deepens as it fills.
+**What the session is doing** is motion and colour: a coral comet travelling the
+ring while it thinks, a solid dot in the middle while it waits for you, a fading
+dot once it has finished unread. A spinner could not have absorbed the context
+reading — its legibility came from the arc length itself oscillating, so length
+was already spoken for.
 
 Working out *when* things happened turned out to be the fiddly part, and several
 faults have been fixed along the way: the turn's start is anchored to the user's
@@ -157,9 +165,15 @@ pretending the work finished.
 
 ### Everything else
 
+- **Minimise.** A button appears in the top-right of the card on hover; press it
+  and everything folds down to the sun alone, and stays there — hovering will not
+  pop it back open. Click the sun to bring the card back. If a session starts
+  waiting on an answer while you are minimised, the sun pulses rather than
+  forcing the card open: the reminder still reaches you, without overriding the
+  decision you just made.
 - Context menu: sign in / sign out, refresh now, keep the usage breakdown open,
-  open the web usage page, clearer glass, always on top, launch at login, bring
-  the pet back to the centre of the screen, quit.
+  minimise to just the sun, open the web usage page, clearer glass, always on
+  top, launch at login, bring the pet back to the centre of the screen, quit.
 - The current version number sits at the top of the menu — worth quoting in any
   bug report.
 - System accessibility settings are respected: **Reduce Motion** disables the

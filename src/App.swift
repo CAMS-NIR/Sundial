@@ -208,6 +208,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             guard let self else { return }
             if self.model.needsLogin { self.startLogin() } else { self.fetcher.forceRefresh() }
         }
+        model.minimised = Self.minimised          // restore the persisted state on launch
+        petView.onToggleMinimised = { [weak self] in self?.toggleMinimised() }
         petView.onMarkRead = { [weak self] id in
             guard let self else { return }
             self.watcher.markRead(id)
@@ -594,6 +596,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                             keyEquivalent: "")
         sb.state = Self.showStatusIcon ? .on : .off
         menu.addItem(sb)
+        // Also in the menu, not only as the button on the card: once minimised there is no card to
+        // put a button on, and a user who has not discovered that clicking the sun restores it would
+        // otherwise be stuck
+        let mini = NSMenuItem(title: Self.minimised ? "Restore the card" : "Minimise to just the sun",
+                              action: #selector(toggleMinimised), keyEquivalent: "")
+        menu.addItem(mini)
         let auto = NSMenuItem(title: "Launch at login", action: #selector(toggleAutostart),
                               keyEquivalent: "")
         auto.state = autostartEnabled ? .on : .off
@@ -628,6 +636,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// Not .popUpMenu (101) — that would cover the menu bar, and would also cover this app's own modal login box (the modal level is only 8).
     /// Glass clarity: false = regular (frosted, legible over any background); true = clear (more
     /// transparent; Apple recommends it only over rich media backgrounds, and legibility drops when there's a lot of text)
+    /// Folded down to just the sun and kept there. Persisted, like the other switches: if you
+    /// deliberately got the card out of the way, having it come back on the next launch would be
+    /// the app overriding a decision you already made.
+    static var minimised: Bool {
+        get { UserDefaults.standard.bool(forKey: "PetMinimised") }
+        set { UserDefaults.standard.set(newValue, forKey: "PetMinimised") }
+    }
+
+    @objc func toggleMinimised() {
+        Self.minimised.toggle()
+        model.minimised = Self.minimised
+        petView.needsDisplay = true
+        adjustWindowHeight()
+    }
+
     static var clearGlass: Bool {
         get { UserDefaults.standard.bool(forKey: "PetClearGlass") }
         set { UserDefaults.standard.set(newValue, forKey: "PetClearGlass") }

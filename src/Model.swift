@@ -24,6 +24,10 @@ final class PetModel {
     var sessions: [SessionActivity] = []
     var hovered: Bool = false     // expand the details while the mouse hovers
     var detailsPinned: Bool = false  // pinned open from the menu (doesn't depend on the mouse)
+    /// Folded down to just the sun and kept there. Unlike the ordinary folded state this one
+    /// overrides hover — otherwise the pointer would pop the card straight back open and the
+    /// button would appear to do nothing.
+    var minimised: Bool = false
 
     var anyBusy: Bool { sessions.contains { $0.busy } }
 

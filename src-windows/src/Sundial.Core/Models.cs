@@ -47,6 +47,11 @@ public sealed class PetModel
     public bool Hovered { get; set; }
     public bool DetailsPinned { get; set; }
 
+    /// <summary>Folded down to just the sun and kept there. Unlike the ordinary folded state this
+    /// one overrides hover — otherwise the pointer would pop the card straight back open and the
+    /// button would appear to do nothing.</summary>
+    public bool Minimised { get; set; }
+
     public bool AnyBusy => Sessions.Any(s => s.Busy);
 
     /// <summary>The ones currently running + the ones that have finished but haven't been looked at. Unread entries stay put until they are clicked away or that session starts working again.</summary>
