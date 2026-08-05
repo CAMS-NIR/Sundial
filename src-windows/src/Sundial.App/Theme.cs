@@ -87,29 +87,6 @@ public static class Theme
     public static Color RingRight => IsDark ? Color.FromRgb(236, 139, 150) : Color.FromRgb(198, 84, 96);
     public static Color GlowRight => IsDark ? Color.FromRgb(255, 182, 187) : Color.FromRgb(255, 158, 164);
 
-    /// <summary>
-    /// The context arc on a session block, at <paramref name="frac"/> of the window used.
-    /// <para>Warm rather than neutral. It used to run grey → black, which was the one cold element on
-    /// a card otherwise made of honey gold, apricot pink and terracotta; at a high figure it turned
-    /// into a near-complete black circle and pulled the eye off everything else. Running it through
-    /// the sun's own family keeps "deepens as it fills" while leaving it part of the card.</para>
-    /// <para>"Deeper" cannot mean "darker" in both appearances: on a dark card a deep brick arc
-    /// disappears exactly when it matters most. So dark mode deepens by getting brighter and more
-    /// saturated, which is the same ramp read against its own background. Both ends are the sun's own
-    /// colours — light mode runs CoralLight → SunDeepen, the pair the body itself darkens along.</para>
-    /// </summary>
-    public static Color ContextArc(double frac)
-    {
-        var f = Math.Clamp(frac, 0, 1);
-        var (lo, hi) = IsDark
-            ? (Color.FromRgb(196, 103, 69), Color.FromRgb(249, 191, 156))
-            : (Color.FromRgb(233, 152, 115), Color.FromRgb(139, 40, 29));
-        return Color.FromRgb((byte)Math.Round(lo.R + (hi.R - lo.R) * f),
-                             (byte)Math.Round(lo.G + (hi.G - lo.G) * f),
-                             (byte)Math.Round(lo.B + (hi.B - lo.B) * f));
-    }
-
-
     /// <summary>Replace the alpha (matching NSColor.withAlphaComponent's semantics: replace, not multiply).</summary>
     public static Color WithAlpha(Color c, double a) =>
         Color.FromArgb((byte)Math.Clamp(Math.Round(a * 255), 0, 255), c.R, c.G, c.B);

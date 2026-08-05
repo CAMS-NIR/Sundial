@@ -1119,8 +1119,17 @@ public sealed class PetRenderer
         if (s.CtxLimit > 0 && s.CtxTokens > 0)
         {
             var frac = Math.Min(1, (double)s.CtxTokens / s.CtxLimit);
-            DrawArc(ctx, center, r, lw, -90, -90 + 360 * frac,
-                    Theme.ContextArc(Math.Pow(frac, 0.8)), round: true);
+            // Neutral, and the only neutral thing on the card. It was warm for a while — the sun's
+            // own CoralLight → SunDeepen pair — and that read as one more colour competing with the
+            // honey dial, the apricot dial, the sun and the coral comet, all inside one 198pt card.
+            // Grey carries "deepening" perfectly well and costs the palette nothing.
+            //
+            // Written as grey towards LabelColor rather than "grey to black" so dark mode needs no
+            // special case: LabelColor is near-white there, and the same expression reads as
+            // grey → white instead of fading into the background. The 0.8 power lifts the low end —
+            // at 10% a nearly invisible arc looks like a fault rather than a reading.
+            var col = Theme.WithAlpha(Theme.LabelColor, 0.30 + 0.70 * Math.Pow(frac, 0.8));
+            DrawArc(ctx, center, r, lw, -90, -90 + 360 * frac, col, round: true);
             // The figure sits in the middle, without a % sign: the clear space inside the ring is
             // 16.2pt and "100" alone needs 16.4 at 8pt, so there was never room for one. Three
             // digits drop to 7pt (14.4pt, which clears); one and two digits stay at 8. A number

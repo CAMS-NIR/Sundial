@@ -1201,9 +1201,18 @@ final class PetView: NSView {
 
         if s.ctxLimit > 0, s.ctxTokens > 0 {
             let frac = min(1, CGFloat(s.ctxTokens) / CGFloat(s.ctxLimit))
+            // Neutral, and the only neutral thing on the card. It was warm for a while — the
+            // sun's own coralLight → sunDeepen pair — and that read as one more colour competing
+            // with the honey dial, the apricot dial, the sun and the coral comet, all inside one
+            // 198pt card. Grey carries "deepening" perfectly well and costs the palette nothing.
+            //
+            // Written as grey towards labelColor rather than "grey to black" so dark mode needs no
+            // special case: labelColor is near-white there, and the same expression reads as
+            // grey → white instead of fading into the background. The 0.8 power lifts the low end —
+            // at 10% a nearly invisible arc looks like a fault rather than a reading.
+            let c = NSColor.labelColor.withAlphaComponent(0.30 + 0.70 * pow(frac, 0.8))
             drawArc(center: center, radius: r, lineWidth: lw,
-                    from: -90, to: -90 + 360 * Double(frac),
-                    color: .contextArc(pow(frac, 0.8)), round: true)
+                    from: -90, to: -90 + 360 * Double(frac), color: c, round: true)
             // The figure sits in the middle, without a % sign: the clear space inside the ring is
             // 16.2pt and "100" alone needs 16.4 at 8pt, so there was never room for one. Three
             // digits drop to 7pt (14.4pt, which clears); one and two digits stay at 8. A number

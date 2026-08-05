@@ -304,16 +304,18 @@ and runs on a ring the fill never touches. Had both stayed on length, 5% context
 would have been indistinguishable from an ordinary spinner, and 86% from a
 nearly closed ring wobbling.
 
-The fill was first written as *grey towards `labelColor`* — a neutral that needs
-no dark-mode special case. It read badly for a different reason: it was the one
-cold element on a card otherwise made of honey gold, apricot pink and terracotta,
-and at a high figure it became a near-complete black circle that pulled the eye
-off everything else. It now runs through the sun's own pair, `coralLight` →
-`sunDeepen`, which is the ramp the body itself darkens along when things get
-tight. Dark mode runs the same pair reversed and brighter at the top, because
-"deeper" cannot mean "darker" on a dark card — the arc would disappear exactly
-when it matters most. The 0.8 power lifts the low end: at 10% a nearly invisible
-arc looks like a fault rather than a reading.
+The fill is **neutral, and the only neutral thing on the card**. It was warm for
+a while — the sun's own `coralLight` → `sunDeepen` pair, the ramp the body itself
+darkens along — and that turned out to be one colour too many: a honey dial, an
+apricot dial, a coral sun and a coral comet already share a 198 pt card, and a
+fifth hue made it busy rather than unified. Grey carries "deepening" perfectly
+well and costs the palette nothing.
+
+It is written as *grey towards `labelColor`*, not "grey to black", so dark mode
+needs no special case: `labelColor` is near-white there, and the same expression
+reads as grey → white instead of fading into the background. The 0.8 power lifts
+the low end: at 10% a nearly invisible arc looks like a fault rather than a
+reading.
 
 The clear space inside the ring is 16.2 pt and `100` alone needs 16.4 at 8 pt,
 so a `%` sign was never going to fit — `19%` needs 16.8 even at 7 pt. Three
