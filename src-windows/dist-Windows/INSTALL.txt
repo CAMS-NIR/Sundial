@@ -1,0 +1,138 @@
+Sundial (Windows)
+=================
+
+A small sun on your desktop, showing the Claude Code sessions you have running
+(what each is doing, how long it has been going, how much context is used) and
+— if you have a Claude Max or Pro subscription — how much of your usage
+allowance is left.
+
+* An unofficial personal project. Not affiliated with Anthropic, and neither
+  endorsed nor supported by them. The usage half relies on an undocumented
+  endpoint and may stop working at any time.
+
+
+First, the important part: you do not have to sign in
+-----------------------------------------------------
+The program has two halves, and they are independent:
+
+· Session state and context consumption — read from local files on your own
+  machine. No account, no subscription; it works as soon as you open it.
+
+· The two usage dials — these need a Claude Max or Pro subscription. Without
+  one, Claude's authorisation page states that connecting Claude Code requires
+  Max or Pro, and refuses. That is expected, not a fault in the program.
+
+So: with no subscription, skip step 3 below. The sun and the session blocks
+work as normal; you simply will not have the two dials.
+
+(The "or use an API key" option on that page does not help here. It is a
+ separate billing arrangement, with no subscription-allowance figure to show.)
+
+
+Getting started
+---------------
+1. Double-click Sundial.exe. There is no installer, and nothing is written
+   into the system.
+2. The first time you open it, Windows may show the blue "Windows protected
+   your PC" dialogue. That is because the executable is not signed with a
+   (paid) Microsoft code-signing certificate — it does not indicate a problem.
+   Choose "More info" then "Run anyway".
+3. Most people can skip this step. If your Claude Code is the command-line
+   version and you have already signed in there, Sundial reuses the
+   credentials it has stored: the two dials are simply there, with nothing
+   for you to do.
+
+   You only need to sign in yourself when that fails — most commonly because
+   you use the Claude Code desktop app, which keeps its sign-in elsewhere —
+   and you do have Max/Pro. In that case: double-click the sun, or right-click
+   it and choose "sign in to Claude account". Your browser opens for you to
+   sign in and approve, and you paste the code it gives you back into the app.
+   Note that a code copied from an older authorisation tab will not work.
+4. After that it just stays on your desktop. Hold and drag the sun to wherever
+   you want it; hover to expand the detail, move away and it folds up again.
+
+
+What it shows
+-------------
+When nothing is happening there is just a sun on your desktop — no card, no
+backing. It takes up no room when it has nothing to say. Hover to expand.
+
+· Below, one block per running Claude Code session: title, what it is doing,
+  how long it has been running, how much context is used. A session waiting
+  for you to choose something jumps to the top. Click a block to dismiss its
+  "finished but unread" marker.
+· With a subscription, a ring on either side of the sun:
+  left (honey gold) is the five-hour allowance; right (apricot pink) is
+  whichever weekly allowance is under the most pressure — the label may read
+  "weekly" or the name of one particular model, whichever is tightest.
+· The sun itself follows usage: a broad grin when there is room, a flat line
+  around halfway, a frown and a reddened body as the limit approaches.
+  It also reaches its rays towards whichever side is tightest, swaying back
+  and forth, with the tips glowing in that side's colour and growing brighter
+  the fuller it gets — so even folded down to a single sun, one glance tells
+  you which side is under pressure.
+· A grey sun with closed eyes and a few z's means no session is running.
+  That is idle, not broken.
+
+The percentage inside a session block is how much of the CONTEXT WINDOW is
+used. When the bar turns deep red it is nearly full, and worth starting a
+fresh session. That figure needs no subscription.
+
+
+Controls
+--------
+Drag              move it (the position is remembered)
+Double-click      starts sign-in if not signed in; otherwise refreshes now
+Hover             expands the detail; moving away folds it up
+Right-click       menu
+Tray icon, left   brings the window to the front (without moving it)
+
+Right-click menu:
+  Sign in / sign in again to Claude account
+  Sign out
+  Refresh now
+  Keep the usage breakdown open
+  Open the web usage page
+  Bring the pet back to the bottom-right     <- use this if it goes missing
+  System blur background (experimental)
+  Launch at login
+  Quit Sundial
+
+
+Notes and known limitations
+---------------------------
+· Requires Windows 10 or 11 (64-bit). The runtime is bundled; there is no
+  need to install .NET separately.
+· Only Claude Code installed NATIVELY on Windows is supported. If your Claude
+  Code runs inside WSL, its transcripts live in the Linux subsystem's file
+  system and this build cannot read them.
+· The card is a hand-drawn translucent panel by default, not system blur.
+  Windows acrylic applies only to a whole rectangular window, whereas this pet
+  is a circle when folded and a rounded card when expanded — its shape changes
+  every frame, so enabling acrylic exposes a rectangular backing outside the
+  rounded corners. There is a "system blur background (experimental)" item in
+  the right-click menu if you want to try it; it only has an effect on
+  Windows 11. Either way, this aspect looks a notch behind the macOS build.
+· The sign-in token is encrypted with Windows' own DPAPI and stored under
+  %LOCALAPPDATA%\Sundial\, so only your account can read it.
+· The window position and the menu toggles are kept in
+  %APPDATA%\Sundial\shell.json, so they survive a restart.
+· It reads the Claude Code transcripts under %USERPROFILE%\.claude, and
+  specifically: record types, timestamps, busy/idle markers, token counts,
+  session titles, and the opening characters of your messages — the last of
+  these to recognise the "interrupted with Esc" and "background task finished"
+  markers. So the text of your messages is read into memory in order to test
+  its prefix. It is not displayed, not retained and not sent anywhere, but
+  saying it "never touches your messages" would not be accurate, which is why
+  it is spelt out here. Note also that session titles are shown on your
+  desktop, so they are visible in screenshots and while screen-sharing.
+· Apart from the one request that fetches usage (which only happens for
+  subscribers), nothing is sent anywhere. No analytics, no crash reporting.
+· While a session is running it uses CPU continuously (full-frame custom
+  drawing plus periodic disk reads); with nothing running it drops to a low
+  frame rate. The macOS build stops entirely when the display sleeps; this
+  build does not yet manage that, which is a known gap.
+
+To uninstall: delete Sundial.exe, then the %LOCALAPPDATA%\Sundial and
+%APPDATA%\Sundial folders. If you enabled "launch at login", switch that off
+in the right-click menu first.
