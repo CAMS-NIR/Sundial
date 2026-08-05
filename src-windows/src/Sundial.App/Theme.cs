@@ -56,9 +56,16 @@ public static class Theme
     // resolves to.
     // Note that these colours **carry their own alpha**, and the original's withAlphaComponent
     // "replaces" rather than "multiplies", so WithAlpha replaces here too.
-    public static Color LabelColor => IsDark ? Color.FromArgb(217, 255, 255, 255) : Color.FromArgb(217, 0, 0, 0);
-    public static Color SecondaryLabelColor => IsDark ? Color.FromArgb(140, 255, 255, 255) : Color.FromArgb(128, 0, 0, 0);
-    public static Color TertiaryLabelColor => IsDark ? Color.FromArgb(64, 255, 255, 255) : Color.FromArgb(66, 0, 0, 0);
+    // These are deliberately a little more opaque than the macOS values they mirror.
+    // The window is transparent, so Windows cannot use ClearType here — subpixel antialiasing needs
+    // an opaque background, and on a layered window it produces colour fringes. That leaves greyscale
+    // antialiasing, which draws noticeably thinner than Core Text does on macOS at the same alpha.
+    // Copying the macOS numbers exactly therefore looked washed out on Windows, particularly the
+    // secondary rows in the breakdown. Raised: secondary 128 -> 158, tertiary 66 -> 92 (light mode),
+    // and correspondingly in dark mode. Primary text was already opaque enough to survive.
+    public static Color LabelColor => IsDark ? Color.FromArgb(228, 255, 255, 255) : Color.FromArgb(228, 0, 0, 0);
+    public static Color SecondaryLabelColor => IsDark ? Color.FromArgb(168, 255, 255, 255) : Color.FromArgb(158, 0, 0, 0);
+    public static Color TertiaryLabelColor => IsDark ? Color.FromArgb(96, 255, 255, 255) : Color.FromArgb(92, 0, 0, 0);
     public static Color WindowBackground => IsDark ? Color.FromRgb(50, 50, 50) : Color.FromRgb(236, 236, 236);
 
     // MARK: The fixed colours of the two gauges + the glow colour for the ray tips on that side
@@ -115,6 +122,28 @@ public static class Theme
     // Avalonia does its own fallback (Consolas on Windows, Menlo when running the tests on a Mac).
     private static readonly FontFamily MonoFamily = new("Consolas, Menlo, Courier New");
 
+    // The interface font used to be FontFamily.Default, i.e. whatever the platform happened to pick.
+    // On macOS that lands on SF Pro and looks fine; on Windows it is unspecified and the small text
+    // came out thin and hard to read.
+    //
+    // Windows 11 ships Segoe UI Variable in three optical sizes, and the choice matters at these
+    // sizes: "Small" is drawn specifically for 8–12pt with more open counters and heavier stems,
+    // while "Text" is tuned for 12–24pt. Almost all of this interface sits at 9–13pt, so most of it
+    // wants Small. Each entry is a comma-separated fallback chain, so Windows 10 (no Variable) drops
+    // to plain Segoe UI, and a Mac running the render tests drops to Helvetica Neue.
+    //
+    // ("-apple-system" was in this chain briefly. It is a CSS keyword, not a font family, so Avalonia
+    // cannot resolve it — it silently did nothing.) Note the consequence for RenderCheck: on a Mac
+    // these renders now use Helvetica Neue rather than the SF Pro the real macOS app draws with, so
+    // they are good for checking layout and truncation but not for comparing letterforms.
+    private static readonly FontFamily UiSmall =
+        new("Segoe UI Variable Small, Segoe UI, Helvetica Neue, Arial");
+    private static readonly FontFamily UiText =
+        new("Segoe UI Variable Text, Segoe UI, Helvetica Neue, Arial");
+
+    /// <summary>Optical size follows the point size; see the note on UiSmall.</summary>
+    private static FontFamily UiFamily(double size) => size < 12 ? UiSmall : UiText;
+
     /// <summary>
     /// Matches the Swift version's drawText(_:in:font:color:align:lineBreak:):
     /// the text is drawn starting from the **top-left corner** of the rect (the original view is
@@ -131,7 +160,7 @@ public static class Theme
             text,
             CultureInfo.CurrentCulture,
             FlowDirection.LeftToRight,
-            new Typeface(monoDigits ? MonoFamily : FontFamily.Default, FontStyle.Normal, weight),
+            new Typeface(monoDigits ? MonoFamily : UiFamily(size), FontStyle.Normal, weight),
             size,
             new SolidColorBrush(color))
         {
