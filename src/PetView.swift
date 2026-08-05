@@ -140,10 +140,7 @@ final class PetView: NSView {
     static let topRowH: CGFloat = 64
     /// The height with the hover detail open. Folded, the block is `blockHClosed` — the absolute
     /// context figure is detail, and detail belongs with the rest of the detail.
-    // 48 rather than 44: the dial on the right is centred in the block, and its caption hangs below
-    // it, so the block has to be at least twice the dial's radius plus the caption — anything less
-    // and one of the two has to move off centre.
-    static let blockH: CGFloat = 48        // title + status + context line
+    static let blockH: CGFloat = 44        // title + status + context line
     static let blockHClosed: CGFloat = 32  // title + status only
 
     /// The block height right now. Interpolated rather than switched, for the same reason the window
@@ -1120,6 +1117,7 @@ final class PetView: NSView {
 
         let sub: String
         var subColor: NSColor = .secondaryLabelColor
+        var unread = false
         if s.waiting {
             let e = elapsedText(since: s.since)
             sub = e.isEmpty ? L("Waiting for you", "等你选择") : L("Waiting for you · \(e)", "等你选择 · \(e)")
@@ -1136,9 +1134,23 @@ final class PetView: NSView {
             sub = e.isEmpty ? L("Not responding", "无响应") : L("Not responding · no update for \(e)", "无响应 · 已 \(e) 无更新")
         } else {
             sub = L("Unread · ", "未读 · ") + agoText(s.finishedAt)
+            unread = true
         }
-        drawText(sub, in: NSRect(x: box.minX + 10, y: box.minY + 18,
-                                 width: box.width - 48, height: 13),
+        // The unread light sits in front of the word "unread", not out on the dial. On the dial it
+        // was pulsing a ring that means context, so the one element carrying a neutral reading kept
+        // flashing at you in the sun's colour; and a mark that small, on a block already dimmed for
+        // being finished, was competing with the whole rest of the card. In front of the word it is
+        // next to the thing it qualifies, and it costs the dial nothing.
+        var subX = box.minX + 10
+        if unread {
+            let pulse = 0.45 + 0.55 * easeInOut((sin(t * 1.6) + 1) / 2)
+            let dark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            (dark ? NSColor.coralLight : NSColor.coralDeep).withAlphaComponent(pulse).setFill()
+            NSBezierPath(ovalIn: NSRect(x: subX, y: box.minY + 21.6, width: 5.2, height: 5.2)).fill()
+            subX += 9
+        }
+        drawText(sub, in: NSRect(x: subX, y: box.minY + 18,
+                                 width: box.maxX - 38 - subX, height: 13),
                  font: .systemFont(ofSize: 9, weight: s.waiting ? .semibold : .regular),
                  color: subColor)
 
@@ -1151,7 +1163,7 @@ final class PetView: NSView {
         if s.ctxLimit > 0, s.ctxTokens > 0, hoverProgress > 0.02 {
             withAlpha(hoverProgress) {
                 drawText(L("Context \(tokenText(s.ctxTokens)) / \(tokenText(s.ctxLimit))", "上下文 \(tokenText(s.ctxTokens)) / \(tokenText(s.ctxLimit))"),
-                         in: NSRect(x: box.minX + 10, y: box.minY + 32, width: box.width - 52, height: 12),
+                         in: NSRect(x: box.minX + 10, y: box.minY + 30, width: box.width - 48, height: 12),
                          font: .systemFont(ofSize: 9.5), color: .labelColor)
             }
         }
@@ -1159,19 +1171,15 @@ final class PetView: NSView {
         // Centred in the block, not pinned near the top. It used to sit at a fixed 16pt from the
         // top edge, which is the middle of a folded block but well above the middle of an open one,
         // so opening the card left it hanging by the title instead of owning its own column.
-        let dialC = NSPoint(x: box.maxX - 20, y: box.minY + blockHNow / 2)
-        drawSessionRing(s, center: dialC, radius: 9.2)
-        // Naming it. The two dials at the top of the card say what they are with a word underneath;
-        // this one said nothing, so a bare "98" sitting in a ring had to be guessed at. It gets the
-        // same treatment, and only with the hover detail — the same moment the token figures appear
-        // on the left of this row, so the word and the numbers it belongs to arrive together.
-        if s.ctxLimit > 0, s.ctxTokens > 0, hoverProgress > 0.02 {
-            withAlpha(hoverProgress) {
-                drawText(L("Context", "上下文"),
-                         in: NSRect(x: dialC.x - 17, y: dialC.y + 13.4, width: 34, height: 10),
-                         font: .systemFont(ofSize: 7.5), color: .secondaryLabelColor, align: .center)
-            }
-        }
+        // Naming it is the row's job, not the dial's. A caption under the dial was tried and taken
+        // out again: 7.5pt is smaller than the value it labels, it hangs in the block's bottom
+        // corner with nothing to line up against, and the same word already sits at full size at
+        // the left of the very same row. There is nowhere else to put it either — inside the ring
+        // "上下文" needs 16.5pt against 16.2 of clear space, and to the left of the dial it would
+        // take 30pt off the title. So the row reads left to right: what it is, how many tokens,
+        // and the dial closing it off with the percentage.
+        drawSessionRing(s, center: NSPoint(x: box.maxX - 20, y: box.minY + blockHNow / 2),
+                        radius: 9.2)
     }
 
     /// The dial on the right of a session block. It carries **two** things at once, which stays
@@ -1221,16 +1229,9 @@ final class PetView: NSView {
             let head = -90 + Double(spinPhase) * 360
             drawArc(center: center, radius: outer, lineWidth: 1.5,
                     from: head - 38, to: head, color: .coralLight, round: true)
-        } else if !s.stalled {
-            // Unread: the whole halo pulses, slowly. A single tick at twelve o'clock was too small a
-            // mark to notice on a block that is already dimmed for being finished — the thing it had
-            // to compete with was the entire rest of the card. Same shape as "waiting for you", told
-            // apart by pace and weight: this one is half the speed and never reaches full strength,
-            // so it reads as a reminder rather than a request.
-            let pulse = 0.30 + 0.40 * easeInOut((sin(t * 1.6) + 1) / 2)
-            drawArc(center: center, radius: outer, lineWidth: 1.7,
-                    from: 0, to: 360, color: NSColor.coralLight.withAlphaComponent(pulse))
         }
+        // Nothing here for "unread": that light lives in front of the word instead, so the dial is
+        // left saying one thing only once a session has stopped working.
     }
 
     // MARK: Hover details

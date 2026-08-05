@@ -30,8 +30,8 @@ needs to be slow enough that it does not look like the thing was erased.
    │  ◯ left dial   ☀ sun   ◯ right dial │  ← sun centred, dials on either side
    │                              │      (x = card width ×0.17 and ×0.83)
    │  ┌────────────────────────┐  │
-   │  │ session title     ◔ ring│  │   ← session block, 44 pt tall, 6 pt apart, max 4
-   │  │ Thinking · 3m 12s       │  │      the ring = context fill + state
+   │  │ session title     ◔ dial│  │   ← session block, 44 pt tall, 6 pt apart, max 4
+   │  │ Thinking · 3m 12s       │  │      inner arc = context, outer track = state
    │  │ Context 468.2k / 1.0M   │  │
    │  └────────────────────────┘  │
    │                              │
@@ -79,14 +79,15 @@ colour), only pulled a little towards the sleeping grey.
 One block per session that is running, or has finished but not been looked at.
 The status lines read:
 
-- `Waiting for you · 12s` — an AskUserQuestion was raised; a breathing solid dot
-  on the right, and the glass takes on a warm tint
+- `Waiting for you · 12s` — an AskUserQuestion was raised; the dial's outer halo
+  breathes, and the glass takes on a warm tint
 - `Background task · 1m 3s` — the main turn is over but the subagents directory
   is still being written
-- `Thinking · 3m 12s` — spinner on the right
+- `Thinking · 3m 12s` — a comet travelling the dial's outer track
 - `Not responding · no update for 6 min` — timed out; **it does not claim the
   work finished**
-- `Unread · just finished` — breathing unread dot on the right; one click clears it
+- `Unread · just finished` — a breathing dot **in front of the word**; one click
+  clears it
 
 Blocks open and close continuously on their own progress value and are clipped
 as they go, so they appear to roll away while the blocks below slide up in step.
@@ -291,9 +292,9 @@ the curve is dragged into a sharp-bottomed V; further out gives the rounded U.
 
 **One dial, two readings, two tracks.** The inner arc is how much of the context
 window is used: static, from twelve o'clock, deepening as it fills, with the
-figure itself in the middle. The outer track is what the session is doing: a
-comet travelling it while thinking, the whole halo pulsing while waiting for an
-answer or while a finished turn stays unread.
+figure itself in the middle. The outer track is what the session is *actively*
+doing: a comet travelling it while thinking, the whole halo pulsing while waiting
+for an answer. Unread is not on the dial at all — see below.
 
 The old spinner could not simply have gained a percentage. Its legibility came
 from the arc length oscillating between 26° and 290°, so length was already the
@@ -314,14 +315,26 @@ tight. Dark mode runs the same pair reversed and brighter at the top, because
 when it matters most. The 0.8 power lifts the low end: at 10% a nearly invisible
 arc looks like a fault rather than a reading.
 
-Two measurements set the rest of it. The clear space inside the ring is 16.2 pt
-and `100` alone needs 16.4 at 8 pt, so a `%` sign was never going to fit; three
-digits drop to 7 pt and one or two stay at 8. And the dial carried no label at
-all, which is the reason a bare `98` in a ring had to be guessed at — the two
-dials at the top of the card say what they are with a word underneath, so this
-one now does too, appearing with the hover detail alongside the token figures it
-belongs to. Fitting a centred dial *and* its caption is what took the block from
-44 pt to 48.
+The clear space inside the ring is 16.2 pt and `100` alone needs 16.4 at 8 pt,
+so a `%` sign was never going to fit — `19%` needs 16.8 even at 7 pt. Three
+digits drop to 7 pt and one or two stay at 8.
+
+**Naming the dial is the row's job, not the dial's.** A caption underneath it —
+the way the two dials at the top of the card are labelled — was tried and taken
+out again. At 7.5 pt it is smaller than the value it labels, it hangs in the
+block's bottom corner with nothing to line up against, and the same word already
+sits at full size at the left of the very same row. There is nowhere else to put
+it either: inside the ring `上下文` needs 16.5 pt against 16.2 of clear space,
+and to the left of the dial it would take 30 pt off the title. So the row reads
+left to right — what it is, how many tokens, and the dial closing it off with the
+percentage.
+
+**Unread lives in front of the word, not on the dial.** Pulsing the halo meant
+the one element carrying a neutral reading kept flashing in the sun's colour for
+a reason that had nothing to do with context; before that it was a single tick at
+twelve o'clock, too small to notice on a block already dimmed for being finished.
+A breathing dot in front of "unread" is next to the thing it qualifies, and it
+costs the dial nothing.
 
 The separate progress bar is gone, and with it the repeated percentage: the dial
 says the same thing at a glance, which the number never did.

@@ -134,11 +134,12 @@ One block per running Claude Code session, up to four:
 The dial on the right of each block carries two readings at once, which only
 works because they sit on separate tracks. **How full the context window is** is
 a static arc from twelve o'clock, warm and deepening as it fills, with the figure
-in the middle and the word `Context` underneath. **What the session is doing** is
-motion on the track outside it: a comet travelling round while it thinks, the
-whole halo pulsing while it waits for you or while a finished turn stays unread.
-A spinner could not have absorbed the context reading — its legibility came from
-the arc length itself oscillating, so length was already spoken for.
+in the middle. **What the session is doing** is motion on the track outside it: a
+comet travelling round while it thinks, the whole halo pulsing while it waits for
+you. A finished turn you have not read yet is marked by a breathing dot in front
+of the word `Unread` instead, next to the thing it qualifies. A spinner could not
+have absorbed the context reading — its legibility came from the arc length
+itself oscillating, so length was already spoken for.
 
 Working out *when* things happened turned out to be the fiddly part, and several
 faults have been fixed along the way: the turn's start is anchored to the user's

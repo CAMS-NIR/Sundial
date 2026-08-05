@@ -26,10 +26,7 @@ public sealed class PetRenderer
     public const double TopRowH = 64;
     /// <summary>Height with the hover detail open. Folded it is <see cref="BlockHClosed"/> — the
     /// absolute context figure is detail, and detail belongs with the rest of the detail.</summary>
-    // 48 rather than 44: the dial on the right is centred in the block and its caption hangs below
-    // it, so the block has to be at least twice the dial's radius plus the caption — anything less
-    // and one of the two has to move off centre.
-    public const double BlockH = 48;          // title + status + context line
+    public const double BlockH = 44;          // title + status + context line
     public const double BlockHClosed = 32;    // title + status only
 
     /// <summary>The block height right now. Interpolated rather than switched, for the same reason
@@ -1028,6 +1025,7 @@ public sealed class PetRenderer
 
         string sub;
         var subColor = Theme.SecondaryLabelColor;
+        var unread = false;
         if (s.Waiting)
         {
             var el = Format.Elapsed(s.Since);
@@ -1053,8 +1051,23 @@ public sealed class PetRenderer
         else
         {
             sub = Language.L("Unread · ", "未读 · ") + Format.Ago(s.FinishedAt);
+            unread = true;
         }
-        Theme.DrawText(ctx, sub, new Rect(box.X + 10, box.Y + 18, box.Width - 48, 13),
+        // The unread light sits in front of the word "unread", not out on the dial. On the dial it
+        // was pulsing a ring that means context, so the one element carrying a neutral reading kept
+        // flashing at you in the sun's colour; and a mark that small, on a block already dimmed for
+        // being finished, was competing with the whole rest of the card. In front of the word it is
+        // next to the thing it qualifies, and it costs the dial nothing.
+        var subX = box.X + 10;
+        if (unread)
+        {
+            var pulse = 0.45 + 0.55 * Theme.EaseInOut((Math.Sin(_t * 1.6) + 1) / 2);
+            var dot = Theme.WithAlpha(Theme.IsDark ? Theme.CoralLight : Theme.CoralDeep, pulse);
+            ctx.DrawEllipse(new SolidColorBrush(dot), null,
+                            new Point(subX + 2.6, box.Y + 24.2), 2.6, 2.6);
+            subX += 9;
+        }
+        Theme.DrawText(ctx, sub, new Rect(subX, box.Y + 18, box.Right - 38 - subX, 13),
                        9, s.Waiting ? FontWeight.SemiBold : FontWeight.Normal, subColor);
 
         // Context usage is now carried by the ring on the right; all that is left here is the
@@ -1066,7 +1079,7 @@ public sealed class PetRenderer
         if (s.CtxLimit > 0 && s.CtxTokens > 0 && HoverProgress > 0.02)
         {
             Theme.DrawText(ctx, Language.L($"Context {Format.Tokens(s.CtxTokens)} / {Format.Tokens(s.CtxLimit)}", $"上下文 {Format.Tokens(s.CtxTokens)} / {Format.Tokens(s.CtxLimit)}"),
-                           new Rect(box.X + 10, box.Y + 32, box.Width - 52, 12),
+                           new Rect(box.X + 10, box.Y + 30, box.Width - 48, 12),
                            9.5, FontWeight.Normal,
                            Theme.WithAlpha(Theme.LabelColor, HoverProgress));
         }
@@ -1074,21 +1087,14 @@ public sealed class PetRenderer
         // Centred in the block, not pinned near the top. It used to sit at a fixed 16pt from the
         // top edge, which is the middle of a folded block but well above the middle of an open one,
         // so opening the card left it hanging by the title instead of owning its own column.
-        var dialC = new Point(box.Right - 20, box.Y + BlockHNow / 2);
-        DrawSessionRing(ctx, s, dialC, 9.2);
-        // Naming it. The two dials at the top of the card say what they are with a word underneath;
-        // this one said nothing, so a bare "98" sitting in a ring had to be guessed at. It gets the
-        // same treatment, and only with the hover detail — the same moment the token figures appear
-        // on the left of this row, so the word and the numbers it belongs to arrive together.
-        if (s.CtxLimit > 0 && s.CtxTokens > 0 && HoverProgress > 0.02)
-        {
-            Theme.DrawText(ctx, Language.L("Context", "上下文"),
-                           new Rect(dialC.X - 17, dialC.Y + 13.4, 34, 10),
-                           7.5, FontWeight.Normal,
-                           Theme.WithAlpha(Theme.SecondaryLabelColor,
-                                           Theme.SecondaryLabelColor.A / 255.0 * HoverProgress),
-                           TextAlignment.Center);
-        }
+        // Naming it is the row's job, not the dial's. A caption under the dial was tried and taken
+        // out again: 7.5pt is smaller than the value it labels, it hangs in the block's bottom
+        // corner with nothing to line up against, and the same word already sits at full size at
+        // the left of the very same row. There is nowhere else to put it either — inside the ring
+        // "上下文" needs 16.5pt against 16.2 of clear space, and to the left of the dial it would
+        // take 30pt off the title. So the row reads left to right: what it is, how many tokens,
+        // and the dial closing it off with the percentage.
+        DrawSessionRing(ctx, s, new Point(box.Right - 20, box.Y + BlockHNow / 2), 9.2);
     }
 
     /// <summary>
@@ -1142,16 +1148,8 @@ public sealed class PetRenderer
             var head = -90 + _spinPhase * 360;
             DrawArc(ctx, center, outer, 1.5, head - 38, head, Theme.CoralLight, round: true);
         }
-        else if (!s.Stalled)
-        {
-            // Unread: the whole halo pulses, slowly. A single tick at twelve o'clock was too small a
-            // mark to notice on a block already dimmed for being finished — the thing it had to
-            // compete with was the entire rest of the card. Same shape as "waiting for you", told
-            // apart by pace and weight: this one is half the speed and never reaches full strength,
-            // so it reads as a reminder rather than a request.
-            var pulse = 0.30 + 0.40 * Theme.EaseInOut((Math.Sin(_t * 1.6) + 1) / 2);
-            DrawArc(ctx, center, outer, 1.7, 0, 360, Theme.WithAlpha(Theme.CoralLight, pulse));
-        }
+        // Nothing here for "unread": that light lives in front of the word instead, so the dial is
+        // left saying one thing only once a session has stopped working.
     }
 
 
