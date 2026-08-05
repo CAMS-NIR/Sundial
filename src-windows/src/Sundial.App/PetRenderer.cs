@@ -24,7 +24,14 @@ public sealed class PetRenderer
     // MARK: Shape constants (numbers tuned over and over in the macOS version — don't change them on a whim)
 
     public const double TopRowH = 64;
-    public const double BlockH = 44;          // title + status + context line (the bar folded into the ring)
+    /// <summary>Height with the hover detail open. Folded it is <see cref="BlockHClosed"/> — the
+    /// absolute context figure is detail, and detail belongs with the rest of the detail.</summary>
+    public const double BlockH = 44;          // title + status + context line
+    public const double BlockHClosed = 32;    // title + status only
+
+    /// <summary>The block height right now. Interpolated rather than switched, for the same reason
+    /// the window height uses a continuous BlocksHeight: a discrete jump eats every easing curve.</summary>
+    private double BlockHNow => BlockHClosed + (BlockH - BlockHClosed) * HoverProgress;
     public const double BlockGap = 6;
     public const int MaxBlocks = PetModel.MaxBlocks;
     public const double PetScale = 0.44;
@@ -113,7 +120,7 @@ public sealed class PetRenderer
         // A long label such as "Weekly · All models" is cut down to its first segment; 198pt of width can't fit the whole thing
         var idx = label.IndexOf(" · ", StringComparison.Ordinal);
         var shortLabel = idx > 0 ? label[..idx] : label;
-        return $"{shortLabel} · resets in {Usage.CompactReset(best)}";
+        return Language.L($"{shortLabel} · resets in {Usage.CompactReset(best)}", $"{shortLabel} · {Usage.CompactReset(best)} 后解封");
     }
 
     /// <summary>The height taken by the reset line; 0 when it isn't drawn. The window height has to account for it.</summary>
@@ -144,7 +151,7 @@ public sealed class PetRenderer
         {
             double sum = 0;
             foreach (var b in _blocks) sum += b.Tw.Value;
-            return Math.Max(0, sum * (BlockH + BlockGap) - BlockGap);
+            return Math.Max(0, sum * (BlockHNow + BlockGap) - BlockGap);
         }
     }
 
@@ -533,16 +540,19 @@ public sealed class PetRenderer
         // right-click menu, which carries the same item.
         if (e > 0.5 && HoverProgress > 0.02 && !_model.Minimised)
         {
-            const double br = 7.5;
-            var bc = new Point(card.Right - 15, card.Y + 12);
+            // Top-left, sitting on the corner — the same place and shape macOS puts the close
+            // button on a notification. Corners are where dismissal controls live; the top-right of
+            // this card is directly above the right-hand dial and reads as part of it.
+            const double br = 8.5;
+            var bc = new Point(card.X + 11, card.Y + 11);
             var btn = new Rect(bc.X - br, bc.Y - br, br * 2, br * 2);
             _minimiseButtonRect = btn.Inflate(3);   // a slightly generous hit target
             ctx.DrawEllipse(new SolidColorBrush(
-                Theme.WithAlpha(Theme.LabelColor, 0.10 * HoverProgress)), null, bc, br, br);
+                Theme.WithAlpha(Theme.LabelColor, 0.13 * HoverProgress)), null, bc, br, br);
             ctx.DrawLine(new Pen(new SolidColorBrush(
-                    Theme.WithAlpha(Theme.LabelColor, 0.62 * HoverProgress)), 1.6)
+                    Theme.WithAlpha(Theme.LabelColor, 0.62 * HoverProgress)), 1.7)
                     { LineCap = PenLineCap.Round },
-                new Point(bc.X - 3.6, bc.Y), new Point(bc.X + 3.6, bc.Y));
+                new Point(bc.X - 4, bc.Y), new Point(bc.X + 4, bc.Y));
         }
 
         if (e <= 0.01) return;   // fully collapsed leaves nothing but the sun
@@ -559,7 +569,7 @@ public sealed class PetRenderer
 
         if (_model.Loading)
         {
-            Theme.DrawText(ctx, "Fetching usage…", new Rect(card.X, y + 6, card.Width, 16),
+            Theme.DrawText(ctx, Language.L("Fetching usage…", "正在获取用量…"), new Rect(card.X, y + 6, card.Width, 16),
                            11, FontWeight.Normal, Theme.SecondaryLabelColor, TextAlignment.Center);
             return;
         }
@@ -578,7 +588,7 @@ public sealed class PetRenderer
                 var btn = new Rect(cardMidX - 60, y + 52, 120, 30);
                 _loginButtonRect = btn;
                 ctx.DrawRectangle(new SolidColorBrush(Theme.CoralDeep), null, btn, 13, 13);
-                Theme.DrawText(ctx, "Double-click to sign in", new Rect(btn.X, btn.Y + 6, btn.Width, 16),
+                Theme.DrawText(ctx, Language.L("Double-click to sign in", "双击登录"), new Rect(btn.X, btn.Y + 6, btn.Width, 16),
                                11, FontWeight.SemiBold, Colors.White, TextAlignment.Center);
             }
             return;
@@ -590,7 +600,7 @@ public sealed class PetRenderer
         // block vanishing into thin air
         foreach (var b in _blocks)
         {
-            var slotH = (BlockH + BlockGap) * b.Tw.Value;
+            var slotH = (BlockHNow + BlockGap) * b.Tw.Value;
             if (b.Tw.Value > 0.995)
             {
                 DrawSessionBlock(ctx, b.S, y, card);
@@ -875,8 +885,8 @@ public sealed class PetRenderer
     private static string WeeklyShortName(UsageRow? row)
     {
         var l = row?.Label;
-        if (l is null) return "Weekly";
-        if (l.Contains("all models")) return "Weekly";
+        if (l is null) return Language.L("Weekly", "每周");
+        if (l.Contains("all models")) return Language.L("Weekly", "每周");
         return l.Replace("Weekly · ", "");
     }
 
@@ -891,7 +901,7 @@ public sealed class PetRenderer
         // left gauge — sun — right gauge, centred and evenly spaced in thirds
         var gauges = new (UsageRow? Row, string Name, double Cx)[]
         {
-            (ringOuter, "5 hours", card.X + card.Width * 0.17),
+            (ringOuter, Language.L("5 hours", "5 小时"), card.X + card.Width * 0.17),
             (ringInner, WeeklyShortName(ringInner), card.Right - card.Width * 0.17),
         };
         for (int k = 0; k < gauges.Length; k++)
@@ -923,8 +933,13 @@ public sealed class PetRenderer
             Theme.DrawText(ctx, $"{row.Percent}%", new Rect(cx - 22, midY - 13, 44, 14),
                            11, FontWeight.SemiBold, Theme.LabelColor,
                            TextAlignment.Center, monoDigits: true);
-            Theme.DrawText(ctx, name, new Rect(cx - 22, midY + 2.6, 44, 11),
-                           9, FontWeight.Normal, Theme.SecondaryLabelColor, TextAlignment.Center);
+            // 34pt, not 44, and 8pt rather than 9. Measured: the clear span inside the ring at the
+            // label's height is 35.0pt, while "5 hours" at 9pt is 33.2 — under a point of margin
+            // each side, which is why it looked glued to the arc. "Routines" at 9pt is 38.2 and ran
+            // straight over the stroke. At 8pt everything but Routines clears comfortably, and the
+            // narrower box makes that one truncate rather than overflow.
+            Theme.DrawText(ctx, name, new Rect(cx - 17, midY + 2.6, 34, 11),
+                           8, FontWeight.Normal, Theme.SecondaryLabelColor, TextAlignment.Center);
         }
     }
 
@@ -984,7 +999,7 @@ public sealed class PetRenderer
 
     private void DrawSessionBlock(DrawingContext ctx, SessionActivity s, double y, Rect card)
     {
-        var box = new Rect(card.X + 9, y, card.Width - 18, BlockH);
+        var box = new Rect(card.X + 9, y, card.Width - 18, BlockHNow);
         _blockRects.Add((s.Id, box));
 
         ctx.DrawRectangle(new SolidColorBrush(Theme.WithAlpha(Theme.LabelColor, s.Busy ? 0.09 : 0.06)),
@@ -1000,28 +1015,28 @@ public sealed class PetRenderer
         if (s.Waiting)
         {
             var el = Format.Elapsed(s.Since);
-            sub = el.Length == 0 ? "Waiting for you" : $"Waiting for you · {el}";
+            sub = el.Length == 0 ? Language.L("Waiting for you", "等你选择") : Language.L($"Waiting for you · {el}", $"等你选择 · {el}");
             subColor = Theme.LabelColor;        // grabbing attention is the breathing dot on the right's job; the text just has to stay readable
         }
         else if (s.Background)
         {
             var el = Format.Elapsed(s.Since);
-            sub = el.Length == 0 ? "Background task running" : $"Background task · {el}";
+            sub = el.Length == 0 ? Language.L("Background task running", "后台任务运行中") : Language.L($"Background task · {el}", $"后台任务 · {el}");
         }
         else if (s.Busy)
         {
             var el = Format.Elapsed(s.Since);
-            sub = el.Length == 0 ? "Thinking" : $"Thinking · {el}";
+            sub = el.Length == 0 ? Language.L("Thinking", "正在思考") : Language.L($"Thinking · {el}", $"正在思考 · {el}");
         }
         else if (s.Stalled)
         {
             // It's just that there has been no new log entry for a long while; we don't know whether it finished, so don't falsely claim it is done
             var el = Format.Elapsed(s.FinishedAt);
-            sub = el.Length == 0 ? "Not responding" : $"Not responding · no update for {el}";
+            sub = el.Length == 0 ? Language.L("Not responding", "无响应") : Language.L($"Not responding · no update for {el}", $"无响应 · 已 {el} 无更新");
         }
         else
         {
-            sub = "Unread · " + Format.Ago(s.FinishedAt);
+            sub = Language.L("Unread · ", "未读 · ") + Format.Ago(s.FinishedAt);
         }
         Theme.DrawText(ctx, sub, new Rect(box.X + 10, box.Y + 18, box.Width - 40, 13),
                        9, s.Waiting ? FontWeight.SemiBold : FontWeight.Normal, subColor);
@@ -1029,14 +1044,18 @@ public sealed class PetRenderer
         // Context usage is now carried by the ring on the right; all that is left here is the
         // absolute figure. The percentage used to be repeated as text beside it, but the ring says
         // it already — and says it at a glance, which the number never did.
-        if (s.CtxLimit > 0 && s.CtxTokens > 0)
+        // The absolute figure only appears with the hover detail. The ring already gives the
+        // percentage at a glance; the exact token counts are something you go looking for, not
+        // something that needs to sit there permanently
+        if (s.CtxLimit > 0 && s.CtxTokens > 0 && HoverProgress > 0.02)
         {
-            Theme.DrawText(ctx, $"Context {Format.Tokens(s.CtxTokens)} / {Format.Tokens(s.CtxLimit)}",
-                           new Rect(box.X + 10, box.Y + 30, box.Width - 40, 12),
-                           9.5, FontWeight.Normal, Theme.LabelColor);
+            Theme.DrawText(ctx, Language.L($"Context {Format.Tokens(s.CtxTokens)} / {Format.Tokens(s.CtxLimit)}", $"上下文 {Format.Tokens(s.CtxTokens)} / {Format.Tokens(s.CtxLimit)}"),
+                           new Rect(box.X + 10, box.Y + 30, box.Width - 44, 12),
+                           9.5, FontWeight.Normal,
+                           Theme.WithAlpha(Theme.LabelColor, HoverProgress));
         }
 
-        DrawSessionRing(ctx, s, new Point(box.Right - 17, box.Y + BlockH / 2), 9);
+        DrawSessionRing(ctx, s, new Point(box.Right - 19, box.Y + 16), 12);
     }
 
     /// <summary>
@@ -1056,39 +1075,48 @@ public sealed class PetRenderer
     /// </summary>
     private void DrawSessionRing(DrawingContext ctx, SessionActivity s, Point center, double r)
     {
-        const double lw = 2.6;
+        const double lw = 2.4;
         DrawArc(ctx, center, r, lw, 0, 360, Theme.WithAlpha(Theme.LabelColor, 0.12));
 
         if (s.CtxLimit > 0 && s.CtxTokens > 0)
         {
             var frac = Math.Min(1, (double)s.CtxTokens / s.CtxLimit);
             // Grey towards the primary text colour. Written this way rather than "grey to black" so
-            // dark mode takes care of itself: LabelColor is near-white there, so the same expression
-            // reads as grey → white instead of fading into the background.
-            // The 0.8 power lifts the low end — at 10% a nearly invisible arc would look like a fault.
+            // dark mode needs no special case: LabelColor is near-white there, and the same
+            // expression reads as grey → white instead of fading into the background.
+            // The 0.8 power lifts the low end — at 10% a nearly invisible arc looks like a fault.
             var col = Theme.WithAlpha(Theme.LabelColor, 0.30 + 0.70 * Math.Pow(frac, 0.8));
             DrawArc(ctx, center, r, lw, -90, -90 + 360 * frac, col, round: true);
+            // The figure sits in the middle, without the % sign: "100%" needs 20pt while the clear
+            // space inside the ring is 21.6, leaving nothing either side — and the ring it is
+            // printed inside already says what kind of number it is
+            var pct = (int)Math.Round(frac * 100, MidpointRounding.AwayFromZero);
+            Theme.DrawText(ctx, pct.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                           new Rect(center.X - 12, center.Y - 5.5, 24, 11),
+                           8.5, FontWeight.SemiBold, Theme.LabelColor,
+                           TextAlignment.Center, monoDigits: true);
         }
 
+        // State lives on the ring, never in the middle — the middle belongs to the number now
         if (s.Waiting)
         {
-            // Waiting for you: a solid breathing dot in the middle. Distinct from the comet by being
-            // still, central, and a deeper coral
-            var pulse = 0.55 + 0.45 * (0.5 + 0.5 * Math.Sin(_t * 3.4));
-            ctx.DrawEllipse(new SolidColorBrush(Theme.WithAlpha(Theme.CoralDeep, pulse)), null,
-                            center, 3.6, 3.6);
+            // Waiting for you: the whole ring breathes coral, distinct from the comet by covering
+            // the entire circle rather than travelling round it
+            var pulse = 0.35 + 0.65 * (0.5 + 0.5 * Math.Sin(_t * 3.4));
+            DrawArc(ctx, center, r + 2.6, 1.8, 0, 360, Theme.WithAlpha(Theme.CoralDeep, pulse));
         }
         else if (s.Busy)
         {
-            // The comet. Drawn last so it passes over the context fill rather than under it
+            // The comet, drawn last so it passes over the context fill rather than under it
             var head = -90 + _spinPhase * 360;
             DrawArc(ctx, center, r, lw, head - 38, head, Theme.CoralLight, round: true);
         }
         else if (!s.Stalled)
         {
+            // Unread: a single coral tick at twelve o'clock, breathing slowly
             var pulse = 0.55 + 0.45 * Theme.EaseInOut((Math.Sin(_t * 1.6) + 1) / 2);
-            ctx.DrawEllipse(new SolidColorBrush(Theme.WithAlpha(Theme.CoralLight, pulse)), null,
-                            center, 3.2, 3.2);
+            DrawArc(ctx, center, r + 2.6, 2.2, -104, -76,
+                    Theme.WithAlpha(Theme.CoralLight, pulse), round: true);
         }
     }
 
@@ -1101,7 +1129,7 @@ public sealed class PetRenderer
         var innerW = card.Width - 26;
         var y = startY;
 
-        Theme.DrawText(ctx, "Claude usage", new Rect(innerX, y, innerW * 0.6, 13),
+        Theme.DrawText(ctx, Language.L("Claude usage", "Claude 用量"), new Rect(innerX, y, innerW * 0.6, 13),
                        9.5, FontWeight.SemiBold, Theme.LabelColor);
         if (_model.Tier.Length > 0)
         {
@@ -1118,7 +1146,7 @@ public sealed class PetRenderer
         var (shownOuter, shownInner) = _model.RingRows;
         if (_model.Rows.Count == 0)
         {
-            Theme.DrawText(ctx, _model.NeedsLogin ? "Not signed in — session activity only" : "Usage unavailable",
+            Theme.DrawText(ctx, _model.NeedsLogin ? Language.L("Not signed in — session activity only", "未登录，只显示会话状态") : Language.L("Usage unavailable", "暂时取不到用量"),
                            new Rect(innerX, y, innerW, 14),
                            9.5, FontWeight.Normal, Theme.SecondaryLabelColor);
             y += 15;
@@ -1130,7 +1158,7 @@ public sealed class PetRenderer
                   : Sundial.App.Theme.TertiaryLabelColor;
             // The original set a 6×6 circle as the clip region here and then filled the same circle, which is equivalent to just drawing a solid dot
             ctx.DrawEllipse(new SolidColorBrush(c), null, new Point(innerX + 3, y + 7), 3, 3);
-            Theme.DrawText(ctx, row.Label, new Rect(innerX + 11, y, innerW - 11 - 81, 14),
+            Theme.DrawText(ctx, Language.DisplayLabel(row.Label), new Rect(innerX + 11, y, innerW - 11 - 81, 14),
                            9.5, FontWeight.Normal, Theme.SecondaryLabelColor);
             // The numbers no longer change colour with usage: colour no longer carries the "how full" information
             Theme.DrawText(ctx, $"{row.Percent}%", new Rect(innerX + innerW - 81, y, 34, 14),
@@ -1148,7 +1176,7 @@ public sealed class PetRenderer
         else if (_model.LastFetch is { } last)
         {
             var mins = (int)(DateTimeOffset.Now - last).TotalMinutes;
-            footer = mins <= 0 ? "updated just now" : $"updated {mins} min ago";
+            footer = mins <= 0 ? Language.L("updated just now", "刚刚更新") : Language.L($"updated {mins} min ago", $"{mins} 分钟前更新");
         }
         else
         {

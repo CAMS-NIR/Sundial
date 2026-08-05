@@ -76,10 +76,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         mainMenu.addItem(NSMenuItem())
         let editItem = NSMenuItem()
         let edit = NSMenu(title: "Edit")
-        edit.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
-        edit.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
-        edit.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
-        edit.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        edit.addItem(withTitle: L("Cut", "剪切"), action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+        edit.addItem(withTitle: L("Copy", "复制"), action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        edit.addItem(withTitle: L("Paste", "粘贴"), action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        edit.addItem(withTitle: L("Select All", "全选"), action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
         editItem.submenu = edit
         mainMenu.addItem(editItem)
         NSApp.mainMenu = mainMenu
@@ -208,6 +208,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             guard let self else { return }
             if self.model.needsLogin { self.startLogin() } else { self.fetcher.forceRefresh() }
         }
+        Self.applyLanguage()                      // before anything draws
         model.minimised = Self.minimised          // restore the persisted state on launch
         petView.onToggleMinimised = { [weak self] in self?.toggleMinimised() }
         petView.onMarkRead = { [weak self] id in
@@ -566,48 +567,62 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(title)
         menu.addItem(.separator())
         let loggedIn = fetcher?.hasToken ?? false
-        menu.addItem(withTitle: loggedIn ? "Sign in to Claude account again…" : "Sign in to Claude account…",
+        menu.addItem(withTitle: loggedIn ? L("Sign in to Claude account again…", "重新登录 Claude 账号…") : L("Sign in to Claude account…", "登录 Claude 账号…"),
                      action: #selector(startLogin), keyEquivalent: "")
         if loggedIn {
-            menu.addItem(withTitle: "Sign out", action: #selector(signOut), keyEquivalent: "")
+            menu.addItem(withTitle: L("Sign out", "退出登录"), action: #selector(signOut), keyEquivalent: "")
         }
         menu.addItem(.separator())
-        menu.addItem(withTitle: "Refresh now", action: #selector(refreshNow), keyEquivalent: "")
+        menu.addItem(withTitle: L("Refresh now", "立即刷新"), action: #selector(refreshNow), keyEquivalent: "")
         // The equivalent of hovering by another route: see the breakdown without holding the mouse over the window
-        let det = NSMenuItem(title: "Keep usage breakdown open", action: #selector(toggleDetails),
+        let det = NSMenuItem(title: L("Keep usage breakdown open", "固定展开用量明细"), action: #selector(toggleDetails),
                              keyEquivalent: "")
         det.state = model.detailsPinned ? .on : .off
         menu.addItem(det)
-        menu.addItem(withTitle: "Open the web usage page", action: #selector(openWeb), keyEquivalent: "")
+        menu.addItem(withTitle: L("Open the web usage page", "打开网页版用量"), action: #selector(openWeb), keyEquivalent: "")
         if forStatusItem {
-            menu.addItem(withTitle: "Bring the pet back to the centre", action: #selector(recenterWindow),
+            menu.addItem(withTitle: L("Bring the pet back to the centre", "把桌宠移回屏幕中央"), action: #selector(recenterWindow),
                          keyEquivalent: "")
         }
         menu.addItem(.separator())
-        let cg = NSMenuItem(title: "Clearer glass", action: #selector(toggleClearGlass),
+        let cg = NSMenuItem(title: L("Clearer glass", "更通透的玻璃"), action: #selector(toggleClearGlass),
                             keyEquivalent: "")
         cg.state = Self.clearGlass ? .on : .off
         menu.addItem(cg)
-        let top = NSMenuItem(title: "Keep above other windows", action: #selector(toggleAbovePopups),
+        let top = NSMenuItem(title: L("Keep above other windows", "始终置于其他窗口之上"), action: #selector(toggleAbovePopups),
                              keyEquivalent: "")
         top.state = Self.abovePopups ? .on : .off
         menu.addItem(top)
-        let sb = NSMenuItem(title: "Show the menu bar icon", action: #selector(toggleStatusIcon),
+        let sb = NSMenuItem(title: L("Show the menu bar icon", "显示菜单栏图标"), action: #selector(toggleStatusIcon),
                             keyEquivalent: "")
         sb.state = Self.showStatusIcon ? .on : .off
         menu.addItem(sb)
         // Also in the menu, not only as the button on the card: once minimised there is no card to
         // put a button on, and a user who has not discovered that clicking the sun restores it would
         // otherwise be stuck
-        let mini = NSMenuItem(title: Self.minimised ? "Restore the card" : "Minimise to just the sun",
+        let mini = NSMenuItem(title: Self.minimised ? L("Restore the card", "恢复卡片") : L("Minimise to just the sun", "最小化为一颗太阳"),
                               action: #selector(toggleMinimised), keyEquivalent: "")
         menu.addItem(mini)
-        let auto = NSMenuItem(title: "Launch at login", action: #selector(toggleAutostart),
+        let langItem = NSMenuItem(title: L("Language", "语言"), action: nil, keyEquivalent: "")
+        let langMenu = NSMenu()
+        for (title, sel, tag) in [
+            (L("Follow the system", "跟随系统"), #selector(setLanguageAuto), ""),
+            ("English", #selector(setLanguageEnglish), "en"),
+            ("简体中文", #selector(setLanguageChinese), "zh"),
+        ] {
+            let it = NSMenuItem(title: title, action: sel, keyEquivalent: "")
+            it.state = Self.languageChoice == tag ? .on : .off
+            it.target = self
+            langMenu.addItem(it)
+        }
+        langItem.submenu = langMenu
+        menu.addItem(langItem)
+        let auto = NSMenuItem(title: L("Launch at login", "登录时自动启动"), action: #selector(toggleAutostart),
                               keyEquivalent: "")
         auto.state = autostartEnabled ? .on : .off
         menu.addItem(auto)
         menu.addItem(.separator())
-        menu.addItem(withTitle: "Quit Sundial", action: #selector(quit), keyEquivalent: "")
+        menu.addItem(withTitle: L("Quit Sundial", "退出 Sundial"), action: #selector(quit), keyEquivalent: "")
         for item in menu.items { item.target = self }
         return menu
     }
@@ -639,6 +654,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// Folded down to just the sun and kept there. Persisted, like the other switches: if you
     /// deliberately got the card out of the way, having it come back on the next launch would be
     /// the app overriding a decision you already made.
+    /// "" = follow the system, otherwise "en" / "zh". Stored as a string rather than a Bool because
+    /// "follow the system" is a genuine third state, not the absence of a choice: a user who has
+    /// never touched this should track their system, and one who has should not be overridden by it.
+    static var languageChoice: String {
+        get { UserDefaults.standard.string(forKey: "PetLanguage") ?? "" }
+        set { UserDefaults.standard.set(newValue, forKey: "PetLanguage") }
+    }
+
+    static func applyLanguage() {
+        appLang = Lang(rawValue: Self.languageChoice) ?? .systemDefault
+    }
+
+    @objc func setLanguageAuto()    { Self.languageChoice = "";   languageChanged() }
+    @objc func setLanguageEnglish() { Self.languageChoice = "en"; languageChanged() }
+    @objc func setLanguageChinese() { Self.languageChoice = "zh"; languageChanged() }
+
+    private func languageChanged() {
+        Self.applyLanguage()
+        // The accessibility element tree is built from the same strings, so it has to be discarded
+        // rather than updated in place — see the note in PetView about only rebuilding when the set
+        // of elements changes
+        petView.needsDisplay = true
+        adjustWindowHeight()
+        statusItem?.menu = buildMenu(forStatusItem: true)
+        statusItem?.menu?.delegate = self
+    }
+
     static var minimised: Bool {
         get { UserDefaults.standard.bool(forKey: "PetMinimised") }
         set { UserDefaults.standard.set(newValue, forKey: "PetMinimised") }
@@ -690,7 +732,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         model.needsLogin = true
         model.rows = []
         model.tier = ""
-        model.errorMsg = "Signed out\nDouble-click me to sign in again"
+        model.errorMsg = L("Signed out\nDouble-click me to sign in again", "已退出登录\n双击我重新登录")
         model.asleep = true
         model.loading = false
         adjustWindowHeight()
@@ -722,7 +764,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func promptForCode(verifier: String) {
         NSApp.activate(ignoringOtherApps: true)
         let alert = NSAlert()
-        alert.messageText = "Connect your Claude account"
+        alert.messageText = L("Connect your Claude account", "连接 Claude 账号")
         alert.informativeText = """
         Your browser has opened Claude's authorisation page. Sign in there and approve.
         Then paste the code it gives you below (the whole address-bar URL works too).
@@ -730,10 +772,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         Note: if an older authorisation page is still open, use the one that has just
         opened — a code from the old page will not work.
         """
-        alert.addButton(withTitle: "Finish signing in")
-        alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: L("Finish signing in", "完成登录"))
+        alert.addButton(withTitle: L("Cancel", "取消"))
         let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 330, height: 24))
-        field.placeholderString = "Paste the authorisation code here"
+        field.placeholderString = L("Paste the authorisation code here", "在此粘贴授权码")
         alert.accessoryView = field
         alert.window.initialFirstResponder = field
         var response: NSApplication.ModalResponse = .cancel
@@ -776,23 +818,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                         self.model.needsLogin = true
                         self.model.rows = []      // without clearing this, the login card and its button won't render
                         self.model.tier = ""
-                        self.model.errorMsg = "Sign-in failed\nDouble-click me to retry"
+                        self.model.errorMsg = L("Sign-in failed\nDouble-click me to retry", "登录失败\n双击我重试")
                         self.model.asleep = true
                         self.adjustWindowHeight()
                     }
                     self.petView.needsDisplay = true
-                    self.warn(text, title: "Sign-in failed")
+                    self.warn(text, title: L("Sign-in failed", "登录失败"))
                 }
             }
         }
     }
 
-    private func warn(_ text: String, title: String = "Notice") {
+    private func warn(_ text: String, title: String = L("Notice", "提示")) {
         let a = NSAlert()
         a.alertStyle = .warning
         a.messageText = title
         a.informativeText = text
-        a.addButton(withTitle: "OK")
+        a.addButton(withTitle: L("OK", "好"))
         NSApp.activate(ignoringOtherApps: true)
         withLoweredWindow { _ = a.runModal() }
     }
@@ -818,11 +860,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             } else {
                 try SMAppService.mainApp.register()
                 if SMAppService.mainApp.status == .requiresApproval {
-                    warn("Allow Sundial to open at login under System Settings › General › Login Items.", title: "One thing to confirm")
+                    warn("Allow Sundial to open at login under System Settings › General › Login Items.", title: L("One thing to confirm", "需要你确认"))
                 }
             }
         } catch {
-            warn("Could not change the launch-at-login setting: \(error.localizedDescription)", title: "Setting failed")
+            warn("Could not change the launch-at-login setting: \(error.localizedDescription)", title: L("Setting failed", "设置失败"))
         }
     }
 

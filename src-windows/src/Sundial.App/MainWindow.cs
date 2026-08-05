@@ -220,6 +220,10 @@ public sealed class MainWindow : Window
         _settings = ShellSettings.Load();
         _model.DetailsPinned = _settings.DetailsPinned;
         _model.Minimised = _settings.Minimised;
+        Sundial.Core.Language.Current = _settings.Language switch
+        {
+            "en" => Lang.En, "zh" => Lang.Zh, _ => Sundial.Core.Language.SystemDefault,
+        };
 
         Title = "Sundial";
         // The interface is drawn entirely by hand, so screen readers see nothing at all in the
@@ -228,7 +232,7 @@ public sealed class MainWindow : Window
         // see accessibilityChildren); that whole set of AutomationPeers hasn't been ported over
         // here yet. At the very least, announce the window's own name, matching the original's
         // accessibilityLabel "Claude usage and session status".
-        AutomationProperties.SetName(this, "Claude usage and session activity");
+        AutomationProperties.SetName(this, Language.L("Claude usage and session activity", "Claude 用量与会话状态"));
         SystemDecorations = SystemDecorations.None;   // Borderless: the whole window is that sun
         Background = Brushes.Transparent;             // Outside the rounded corners it must be genuinely transparent, or a black/white square shows through
         Topmost = true;
@@ -832,26 +836,32 @@ public sealed class MainWindow : Window
         // first thing you can ask is "what does the menu say?"
         new MenuEntry($"Sundial {AppVersion}", Enabled: () => false),
         new MenuEntry("", IsSeparator: true),
-        new MenuEntry("Sign in to Claude account…", StartLogin,
-            DynamicText: () => LoggedIn ? "Sign in to Claude account again…" : "Sign in to Claude account…"),
-        new MenuEntry("Sign out", SignOut, Enabled: () => LoggedIn),
+        new MenuEntry(Language.L("Sign in to Claude account…", "登录 Claude 账号…"), StartLogin,
+            DynamicText: () => LoggedIn ? Language.L("Sign in to Claude account again…", "重新登录 Claude 账号…") : Language.L("Sign in to Claude account…", "登录 Claude 账号…")),
+        new MenuEntry(Language.L("Sign out", "退出登录"), SignOut, Enabled: () => LoggedIn),
         new MenuEntry("", IsSeparator: true),
-        new MenuEntry("Refresh now", () => ForceRefreshRequested?.Invoke()),
+        new MenuEntry(Language.L("Refresh now", "立即刷新"), () => ForceRefreshRequested?.Invoke()),
         // An equivalent entry point besides hovering: you can look at the details without keeping
         // the mouse parked on the window
-        new MenuEntry("Keep usage breakdown open", ToggleDetails, Checked: () => _model.DetailsPinned),
+        new MenuEntry(Language.L("Keep usage breakdown open", "固定展开用量明细"), ToggleDetails, Checked: () => _model.DetailsPinned),
         // Also here, not only as the button on the card: once minimised there is no card to put a
         // button on, and a user who has not discovered that clicking the sun restores it would
         // otherwise be stuck
-        new MenuEntry("Minimise to just the sun", ToggleMinimised, Checked: () => _model.Minimised),
-        new MenuEntry("Open the web usage page", () => OpenUrl("https://claude.ai/settings/usage")),
-        new MenuEntry("Bring the pet back to the bottom-right", EnsureVisible),
+        new MenuEntry(Language.L("Minimise to just the sun", "最小化为一颗太阳"), ToggleMinimised, Checked: () => _model.Minimised),
+        new MenuEntry(Language.L("Open the web usage page", "打开网页版用量"), () => OpenUrl("https://claude.ai/settings/usage")),
+        new MenuEntry(Language.L("Bring the pet back to the bottom-right", "把桌宠移回屏幕右下角"), EnsureVisible),
         new MenuEntry("", IsSeparator: true),
-        new MenuEntry("System blur background (experimental)", ToggleSystemBlur, Checked: () => _settings.SystemBlur),
-        new MenuEntry("Launch at login", ToggleAutostart, Checked: () => AutoStart.IsEnabled,
+        new MenuEntry(Language.L("System blur background (experimental)", "系统模糊背景（实验）"), ToggleSystemBlur, Checked: () => _settings.SystemBlur),
+        new MenuEntry(Language.L("Language: follow the system", "语言：跟随系统"),
+                      () => SetLanguage(""), Checked: () => _settings.Language == ""),
+        new MenuEntry(Language.L("Language: English", "语言：English"),
+                      () => SetLanguage("en"), Checked: () => _settings.Language == "en"),
+        new MenuEntry(Language.L("Language: 简体中文", "语言：简体中文"),
+                      () => SetLanguage("zh"), Checked: () => _settings.Language == "zh"),
+        new MenuEntry(Language.L("Launch at login", "开机自动启动"), ToggleAutostart, Checked: () => AutoStart.IsEnabled,
             Enabled: () => OperatingSystem.IsWindows()),
         new MenuEntry("", IsSeparator: true),
-        new MenuEntry("Quit Sundial", QuitApp),
+        new MenuEntry(Language.L("Quit Sundial", "退出 Sundial"), QuitApp),
     };
 
     private bool LoggedIn => HasTokenProvider?.Invoke() ?? false;
@@ -930,6 +940,19 @@ public sealed class MainWindow : Window
             item.Header = Decorate(entry);
             item.IsEnabled = entry.Enabled?.Invoke() ?? true;
         }
+    }
+
+    private void SetLanguage(string choice)
+    {
+        _settings.Language = choice;
+        _settings.Save();
+        Sundial.Core.Language.Current = choice switch
+        {
+            "en" => Lang.En, "zh" => Lang.Zh, _ => Sundial.Core.Language.SystemDefault,
+        };
+        ApplyDesiredSize();
+        _surface.InvalidateVisual();
+        RefreshMenus();
     }
 
     private void ToggleMinimised()
@@ -1034,7 +1057,7 @@ public sealed class MainWindow : Window
         _model.NeedsLogin = true;
         _model.Rows = new List<UsageRow>();
         _model.Tier = "";
-        _model.ErrorMsg = "Signed out\nDouble-click me to sign in again";
+        _model.ErrorMsg = Language.L("Signed out\nDouble-click me to sign in again", "已退出登录\n双击我重新登录");
         _model.Asleep = true;
         _model.Loading = false;
         NotifyModelChanged();
@@ -1134,7 +1157,7 @@ public sealed class MainWindow : Window
                 _model.NeedsLogin = true;
                 _model.Rows = new List<UsageRow>();   // Without clearing it the login card and button don't get rendered
                 _model.Tier = "";
-                _model.ErrorMsg = "Sign-in failed\nDouble-click me to retry";
+                _model.ErrorMsg = Language.L("Sign-in failed\nDouble-click me to retry", "登录失败\n双击我重试");
                 _model.Asleep = true;
             }
         }
@@ -1146,7 +1169,7 @@ public sealed class MainWindow : Window
         // they are left with is "it failed again"
         if (!string.IsNullOrEmpty(outcome.Message))
         {
-            ShowNotice(outcome.Ok ? "Notice" : "Sign-in failed", outcome.Message!);
+            ShowNotice(outcome.Ok ? Language.L("Notice", "提示") : Language.L("Sign-in failed", "登录失败"), outcome.Message!);
         }
     }
 
@@ -1194,7 +1217,7 @@ public sealed class MainWindow : Window
         {
             _onDone = onDone;
 
-            Title = "Connect your Claude account";
+            Title = Language.L("Connect your Claude account", "连接 Claude 账号");
             Width = 460;
             SizeToContent = SizeToContent.Height;
             CanResize = false;
@@ -1204,7 +1227,7 @@ public sealed class MainWindow : Window
 
             _input = new TextBox
             {
-                Watermark = "Paste the authorisation code here",
+                Watermark = Language.L("Paste the authorisation code here", "在此粘贴授权码"),
                 AcceptsReturn = false,
                 MinWidth = 300,
             };
@@ -1212,10 +1235,10 @@ public sealed class MainWindow : Window
             // The authorisation page was already opened for the user before this box popped up
             // (see StartLogin); this button is the fallback: if the default browser isn't set up
             // properly, or the user's hand slipped and closed the tab, it can be opened again
-            var openBtn = new Button { Content = "Reopen the authorisation page" };
+            var openBtn = new Button { Content = Language.L("Reopen the authorisation page", "重新打开授权页") };
             openBtn.Click += (_, _) => OpenUrl(authorizeUrl);
 
-            var pasteBtn = new Button { Content = "Paste" };
+            var pasteBtn = new Button { Content = Language.L("Paste", "粘贴") };
             pasteBtn.Click += async (_, _) =>
             {
                 var clip = Clipboard;   // The clipboard that comes with TopLevel; no need to go hunting for a TopLevel
@@ -1224,10 +1247,10 @@ public sealed class MainWindow : Window
                 if (!string.IsNullOrWhiteSpace(text)) _input.Text = text.Trim();
             };
 
-            var okBtn = new Button { Content = "Finish signing in", IsDefault = true };
+            var okBtn = new Button { Content = Language.L("Finish signing in", "完成登录"), IsDefault = true };
             okBtn.Click += (_, _) => Finish(_input.Text);
 
-            var cancelBtn = new Button { Content = "Cancel", IsCancel = true };
+            var cancelBtn = new Button { Content = Language.L("Cancel", "取消"), IsCancel = true };
             cancelBtn.Click += (_, _) => Finish(null);
 
             Content = new StackPanel
@@ -1286,7 +1309,7 @@ public sealed class MainWindow : Window
         }
     }
 
-    /// <summary>The counterpart of the macOS version's warn(): one sentence plus an "OK".
+    /// <summary>The counterpart of the macOS version's warn(): one sentence plus an Language.L("OK", "好").
     /// The text has to be selectable and copyable — the explanation of a login failure contains
     /// steps for the user to follow.</summary>
     private sealed class NoticeWindow : Window
@@ -1307,7 +1330,7 @@ public sealed class MainWindow : Window
 
             var ok = new Button
             {
-                Content = "OK",
+                Content = Language.L("OK", "好"),
                 IsDefault = true,
                 IsCancel = true,
                 HorizontalAlignment = HorizontalAlignment.Right,
@@ -1347,7 +1370,7 @@ public sealed class MainWindow : Window
         // exception). On corporate machines HKCU\...\Run is often locked down by group policy, and
         // if it fails silently what the user sees is "I ticked it, it didn't tick, and nobody told
         // me why"
-        if (err is not null) ShowNotice("Setting failed", "Could not change the launch-at-login setting: " + err);
+        if (err is not null) ShowNotice(Language.L("Setting failed", "设置失败"), "Could not change the launch-at-login setting: " + err);
     }
 
     // MARK: Appearance and accessibility
@@ -1636,6 +1659,9 @@ internal sealed class ShellSettings
     /// got the card out of the way, having it come back on the next launch would be the app
     /// overriding a decision you already made.</summary>
     public bool Minimised { get; set; }
+    /// <summary>"" = follow the system, otherwise "en" / "zh". A string rather than a bool because
+    /// "follow the system" is a genuine third state, not the absence of a choice.</summary>
+    public string Language { get; set; } = "";
     public bool SystemBlur { get; set; }
 
     private static string Dir => Path.Combine(

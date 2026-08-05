@@ -47,13 +47,13 @@ func parseResetDate(_ v: Any?) -> Date? {
 func compactReset(_ d: Date?) -> String {
     guard let d else { return "" }
     let secs = d.timeIntervalSinceNow
-    if secs <= 0 { return "soon" }
+    if secs <= 0 { return L("soon", "即将") }
     if secs < 24 * 3600 {
         let h = Int(secs) / 3600, m = (Int(secs) % 3600) / 60
         return h > 0 ? "\(h)h\(m)m" : "\(m)m"
     }
     let fmt = DateFormatter()
-    fmt.locale = Locale(identifier: "en_GB")   // pinned: the interface is English-only
+    fmt.locale = Locale(identifier: appLang == .zh ? "zh_CN" : "en_GB")
     fmt.dateFormat = "EEE HH:mm"
     return fmt.string(from: d)
 }

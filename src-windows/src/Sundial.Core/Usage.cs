@@ -192,7 +192,7 @@ public static class Usage
     {
         if (d is null) return "";
         var secs = (d.Value - DateTimeOffset.Now).TotalSeconds;
-        if (secs <= 0) return "soon";
+        if (secs <= 0) return Language.L("soon", "即将");
         if (secs < 24 * 3600)
         {
             int total = (int)secs, h = total / 3600, m = total % 3600 / 60;

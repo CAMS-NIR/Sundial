@@ -126,17 +126,17 @@ public static class Format
     {
         if (since is null) return "";
         var secs = Math.Max(0, (int)(DateTimeOffset.Now - since.Value).TotalSeconds);
-        if (secs < 60) return $"{secs}s";
+        if (secs < 60) return Language.L($"{secs}s", $"{secs} 秒");
         int m = secs / 60, s = secs % 60;
-        return m < 60 ? $"{m}m {s}s" : $"{m / 60}h {m % 60}m";
+        return m < 60 ? Language.L($"{m}m {s}s", $"{m} 分 {s} 秒") : Language.L($"{m / 60}h {m % 60}m", $"{m / 60} 小时 {m % 60} 分");
     }
 
     public static string Ago(DateTimeOffset? date)
     {
         if (date is null) return "";
         var secs = Math.Max(0, (int)(DateTimeOffset.Now - date.Value).TotalSeconds);
-        if (secs < 60) return "just now";
+        if (secs < 60) return Language.L("just now", "刚刚");
         var m = secs / 60;
-        return m < 60 ? $"{m} min ago" : $"{m / 60} h ago";
+        return m < 60 ? Language.L($"{m} min ago", $"{m} 分钟前") : Language.L($"{m / 60} h ago", $"{m / 60} 小时前");
     }
 }

@@ -593,18 +593,18 @@ final class ActivityWatcher {
 func elapsedText(since date: Date?) -> String {
     guard let date else { return "" }
     let secs = max(0, Int(Date().timeIntervalSince(date)))
-    if secs < 60 { return "\(secs)s" }
+    if secs < 60 { return L("\(secs)s", "\(secs) 秒") }
     let m = secs / 60, s = secs % 60
-    if m < 60 { return "\(m)m \(s)s" }
-    return "\(m / 60)h \(m % 60)m"
+    if m < 60 { return L("\(m)m \(s)s", "\(m) 分 \(s) 秒") }
+    return L("\(m / 60)h \(m % 60)m", "\(m / 60) 小时 \(m % 60) 分")
 }
 
 func agoText(_ date: Date?) -> String {
     guard let date else { return "" }
     let secs = max(0, Int(Date().timeIntervalSince(date)))
-    if secs < 60 { return "just now" }
+    if secs < 60 { return L("just now", "刚刚") }
     let m = secs / 60
-    if m < 60 { return "\(m) min ago" }
-    return "\(m / 60) h ago"
+    if m < 60 { return L("\(m) min ago", "\(m) 分钟前") }
+    return L("\(m / 60) h ago", "\(m / 60) 小时前")
 }
 

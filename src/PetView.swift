@@ -88,7 +88,7 @@ final class PetView: NSView {
         guard let (date, label) = next else { return nil }
         // A long label such as "Weekly · All models" is cut down to its first segment; 198pt of width cannot fit the whole thing
         let short = label.components(separatedBy: " · ").first ?? label
-        return "\(short) · resets in \(compactReset(date))"
+        return L("\(short) · resets in \(compactReset(date))", "\(short) · \(compactReset(date)) 后解封")
     }
 
     /// For AppDelegate.expandedHeight(): does this line take up any room or not
@@ -134,11 +134,20 @@ final class PetView: NSView {
     /// Must be clamped to 0: when sum is very small, sum*56-6 is negative and the window shrinks past the target before springing back
     var blocksHeight: CGFloat {
         let sum = blocks.reduce(0) { $0 + $1.tw.value }
-        return max(0, sum * (PetView.blockH + PetView.blockGap) - PetView.blockGap)
+        return max(0, sum * (blockHNow + PetView.blockGap) - PetView.blockGap)
     }
 
     static let topRowH: CGFloat = 64
-    static let blockH: CGFloat = 44        // title + status + context line (the bar folded into the ring)
+    /// The height with the hover detail open. Folded, the block is `blockHClosed` — the absolute
+    /// context figure is detail, and detail belongs with the rest of the detail.
+    static let blockH: CGFloat = 44        // title + status + context line
+    static let blockHClosed: CGFloat = 32  // title + status only
+
+    /// The block height right now. Interpolated rather than switched, for the same reason the window
+    /// height uses a continuous `blocksHeight`: a discrete jump eats every easing curve in sight.
+    private var blockHNow: CGFloat {
+        PetView.blockHClosed + (PetView.blockH - PetView.blockHClosed) * hoverProgress
+    }
     static let blockGap: CGFloat = 6
     static let maxBlocks = 4
     static let petScale: CGFloat = 0.44
@@ -458,7 +467,7 @@ final class PetView: NSView {
     // The container itself has to be visible, otherwise the children get hung off the window and the label is never read out either
     override func isAccessibilityElement() -> Bool { true }
     override func accessibilityRole() -> NSAccessibility.Role? { .group }
-    override func accessibilityLabel() -> String? { "Claude usage and session activity" }
+    override func accessibilityLabel() -> String? { L("Claude usage and session activity", "Claude 用量与会话状态") }
 
     /// A pressable accessibility element: runs the action when VoiceOver presses it
     final class ActionElement: NSAccessibilityElement {
@@ -492,35 +501,35 @@ final class PetView: NSView {
         // In the collapsed state the gauges are not drawn, so do not report them to assistive technology
         if expandProgress > 0.5 {
             for (row, name, cx) in [
-                (rings.outer, "Five-hour usage", card.minX + card.width * 0.17),
-                (rings.inner, "Weekly usage", card.maxX - card.width * 0.17),
+                (rings.outer, L("Five-hour usage", "5 小时用量"), card.minX + card.width * 0.17),
+                (rings.inner, L("Weekly usage", "每周用量"), card.maxX - card.width * 0.17),
             ] {
                 guard let row else { continue }
-                var v = "\(row.percent)% used"
-                if let d = row.resetAt { v += ", resets in \(compactReset(d))" }
+                var v = L("\(row.percent)% used", "已用 \(row.percent)%")
+                if let d = row.resetAt { v += L(", resets in \(compactReset(d))", "，\(compactReset(d)) 后重置") }
                 add("gauge:" + name, .levelIndicator, name, v,
                     accessibilityFrame(NSRect(x: cx - gaugeR, y: midY - gaugeR,
                                               width: gaugeR * 2, height: gaugeR * 2)))
             }
         }
         if model.needsLogin, loginButtonRect != .zero {
-            add("login", .button, "Sign in to Claude account", nil,
+            add("login", .button, L("Sign in to Claude account", "登录 Claude 账号"), nil,
                 accessibilityFrame(loginButtonRect))
         }
         for (id, rect) in blockRects {
             guard let s = model.sessions.first(where: { $0.id == id }) else { continue }
             var v: String
-            if s.waiting { v = "Waiting for you to choose" }
-            else if s.background { v = "Background task running" }
-            else if s.busy { v = "Thinking" }
-            else if s.stalled { v = "Not responding — no new records for some time" }
-            else { v = "Finished, unread" }
-            if let since = s.since { v += ", running for \(elapsedText(since: since))" }
+            if s.waiting { v = L("Waiting for you to choose", "等待你选择") }
+            else if s.background { v = L("Background task running", "后台任务运行中") }
+            else if s.busy { v = L("Thinking", "正在思考") }
+            else if s.stalled { v = L("Not responding — no new records for some time", "无响应，长时间没有新记录") }
+            else { v = L("Finished, unread", "已完成，未读") }
+            if let since = s.since { v += L(", running for \(elapsedText(since: since))", "，已用时 \(elapsedText(since: since))") }
             if s.ctxLimit > 0, s.ctxTokens > 0 {
                 let pct = min(100, max(0, Int(Double(s.ctxTokens) / Double(s.ctxLimit) * 100)))
-                v += ", context \(pct)% used"
+                v += L(", context \(pct)% used", "，上下文已用 \(pct)%")
             }
-            add("session:" + id, .button, s.title.isEmpty ? "Claude Code sessions" : s.title,
+            add("session:" + id, .button, s.title.isEmpty ? L("Claude Code sessions", "Claude Code 会话") : s.title,
                 v, accessibilityFrame(rect))
         }
 
@@ -642,17 +651,20 @@ final class PetView: NSView {
         // not compete with the two dials for attention. Discoverability is covered by the
         // right-click menu, which carries the same item.
         if e > 0.5, hoverProgress > 0.02, !model.minimised {
-            let r: CGFloat = 7.5
-            let c = NSPoint(x: card.maxX - 15, y: card.minY + 12)
+            // Top-left, sitting on the corner — the same place and shape macOS puts the close
+            // button on a notification. Corners are where dismissal controls live; the top-right of
+            // this card is directly above the right-hand dial and reads as part of it.
+            let r: CGFloat = 8.5
+            let c = NSPoint(x: card.minX + 11, y: card.minY + 11)
             let btn = NSRect(x: c.x - r, y: c.y - r, width: r * 2, height: r * 2)
             minimiseButtonRect = btn.insetBy(dx: -3, dy: -3)   // a slightly generous hit target
             withAlpha(hoverProgress) {
-                NSColor.labelColor.withAlphaComponent(0.10).setFill()
+                NSColor.labelColor.withAlphaComponent(0.13).setFill()
                 NSBezierPath(ovalIn: btn).fill()
                 let bar = NSBezierPath()
-                bar.move(to: NSPoint(x: c.x - 3.6, y: c.y))
-                bar.line(to: NSPoint(x: c.x + 3.6, y: c.y))
-                bar.lineWidth = 1.6
+                bar.move(to: NSPoint(x: c.x - 4, y: c.y))
+                bar.line(to: NSPoint(x: c.x + 4, y: c.y))
+                bar.lineWidth = 1.7
                 bar.lineCapStyle = .round
                 NSColor.labelColor.withAlphaComponent(0.62).setStroke()
                 bar.stroke()
@@ -672,7 +684,7 @@ final class PetView: NSView {
         }
 
         if model.loading {
-            drawText("Fetching usage…", in: NSRect(x: card.minX, y: y + 6,
+            drawText(L("Fetching usage…", "正在获取用量…"), in: NSRect(x: card.minX, y: y + 6,
                                             width: card.width, height: 16),
                      font: .systemFont(ofSize: 11),
                      color: .secondaryLabelColor, align: .center)
@@ -696,7 +708,7 @@ final class PetView: NSView {
                 loginButtonRect = btn
                 NSColor.coralDeep.setFill()
                 NSBezierPath(roundedRect: btn, xRadius: 13, yRadius: 13).fill()
-                drawText("Double-click to sign in", in: NSRect(x: btn.minX, y: btn.minY + 6,
+                drawText(L("Double-click to sign in", "双击登录"), in: NSRect(x: btn.minX, y: btn.minY + 6,
                                             width: btn.width, height: 16),
                          font: .systemFont(ofSize: 11, weight: .semibold),
                          color: .white, align: .center)
@@ -709,7 +721,7 @@ final class PetView: NSView {
         // is clipped into that height — so it disappears by rolling up, with the blocks below sliding up in
         // step, rather than a whole block vanishing into thin air
         for b in blocks {
-            let slotH = (PetView.blockH + PetView.blockGap) * b.tw.value
+            let slotH = (blockHNow + PetView.blockGap) * b.tw.value
             if b.tw.value > 0.995 {
                 drawSessionBlock(b.s, at: y, in: card)
             } else if slotH > 0.5 {
@@ -1001,8 +1013,9 @@ final class PetView: NSView {
 
     /// The small label under the inner ring: the all-models limit shows "Weekly", a model-specific limit shows the model name
     private func weeklyShortName(_ row: UsageRow?) -> String {
-        guard let l = row?.label else { return "Weekly" }
-        if l.contains("all models") { return "Weekly" }
+        guard let l = row?.label else { return L("Weekly", "每周") }
+        if l.contains("all models") { return L("Weekly", "每周") }
+        // Matching stays on the English key; only what comes out is translated
         return l.replacingOccurrences(of: "Weekly · ", with: "")
     }
 
@@ -1020,7 +1033,7 @@ final class PetView: NSView {
         let rings = model.ringRows
         // left gauge — sun — right gauge, centred in three equal parts
         let gauges: [(UsageRow?, String, CGFloat)] = [
-            (rings.outer, "5 hours", card.minX + card.width * 0.17),
+            (rings.outer, L("5 hours", "5 小时"), card.minX + card.width * 0.17),
             (rings.inner, weeklyShortName(rings.inner), card.maxX - card.width * 0.17),
         ]
         for (k, g) in gauges.enumerated() {
@@ -1049,8 +1062,13 @@ final class PetView: NSView {
                      in: NSRect(x: cx - 22, y: midY - 13, width: 44, height: 14),
                      font: .monospacedDigitSystemFont(ofSize: 11, weight: .semibold),
                      color: .labelColor, align: .center)
-            drawText(name, in: NSRect(x: cx - 22, y: midY + 2.6, width: 44, height: 11),
-                     font: .systemFont(ofSize: 9),
+            // 34pt, not 44, and 8pt rather than 9. Measured: the clear span inside the ring at the
+            // label's height is 35.0pt, while "5 hours" at 9pt is 33.2 — under a point of margin
+            // each side, which is why it looked glued to the arc. "Routines" at 9pt is 38.2 and
+            // simply ran over the stroke. At 8pt everything except Routines clears comfortably, and
+            // the narrower box makes that one truncate rather than overflow.
+            drawText(name, in: NSRect(x: cx - 17, y: midY + 2.6, width: 34, height: 11),
+                     font: .systemFont(ofSize: 8),
                      color: .secondaryLabelColor, align: .center)
         }
     }
@@ -1071,7 +1089,7 @@ final class PetView: NSView {
 
     private func drawSessionBlock(_ s: SessionActivity, at y: CGFloat, in card: NSRect) {
         let box = NSRect(x: card.minX + 9, y: y,
-                         width: card.width - 18, height: PetView.blockH)
+                         width: card.width - 18, height: blockHNow)
         blockRects.append((s.id, box))
 
         NSColor.labelColor.withAlphaComponent(s.busy ? 0.09 : 0.06).setFill()
@@ -1087,20 +1105,20 @@ final class PetView: NSView {
         var subColor: NSColor = .secondaryLabelColor
         if s.waiting {
             let e = elapsedText(since: s.since)
-            sub = e.isEmpty ? "Waiting for you" : "Waiting for you · \(e)"
+            sub = e.isEmpty ? L("Waiting for you", "等你选择") : L("Waiting for you · \(e)", "等你选择 · \(e)")
             subColor = .labelColor        // grabbing attention is left to the breathing dot on the right; the text only has to stay readable
         } else if s.background {
             let e = elapsedText(since: s.since)
-            sub = e.isEmpty ? "Background task running" : "Background task · \(e)"
+            sub = e.isEmpty ? L("Background task running", "后台任务运行中") : L("Background task · \(e)", "后台任务 · \(e)")
         } else if s.busy {
             let e = elapsedText(since: s.since)
-            sub = e.isEmpty ? "Thinking" : "Thinking · \(e)"
+            sub = e.isEmpty ? L("Thinking", "正在思考") : L("Thinking · \(e)", "正在思考 · \(e)")
         } else if s.stalled {
             // It has just been a long time with no new records; we do not know whether it finished, so do not falsely report "done"
             let e = elapsedText(since: s.finishedAt)
-            sub = e.isEmpty ? "Not responding" : "Not responding · no update for \(e)"
+            sub = e.isEmpty ? L("Not responding", "无响应") : L("Not responding · no update for \(e)", "无响应 · 已 \(e) 无更新")
         } else {
-            sub = "Unread · " + agoText(s.finishedAt)
+            sub = L("Unread · ", "未读 · ") + agoText(s.finishedAt)
         }
         drawText(sub, in: NSRect(x: box.minX + 10, y: box.minY + 18,
                                  width: box.width - 40, height: 13),
@@ -1110,13 +1128,18 @@ final class PetView: NSView {
         // Context usage is now carried by the ring on the right; all that is left here is the
         // absolute figure. The percentage used to be repeated as text next to it, but the ring
         // already says it — and the ring says it at a glance, which the number never did.
-        if s.ctxLimit > 0, s.ctxTokens > 0 {
-            drawText("Context \(tokenText(s.ctxTokens)) / \(tokenText(s.ctxLimit))",
-                     in: NSRect(x: box.minX + 10, y: box.minY + 30, width: box.width - 40, height: 12),
-                     font: .systemFont(ofSize: 9.5), color: .labelColor)
+        // The absolute figure only appears with the hover detail. The ring already gives the
+        // percentage at a glance; the exact token counts are the kind of thing you go looking for,
+        // not something that needs to sit there permanently
+        if s.ctxLimit > 0, s.ctxTokens > 0, hoverProgress > 0.02 {
+            withAlpha(hoverProgress) {
+                drawText(L("Context \(tokenText(s.ctxTokens)) / \(tokenText(s.ctxLimit))", "上下文 \(tokenText(s.ctxTokens)) / \(tokenText(s.ctxLimit))"),
+                         in: NSRect(x: box.minX + 10, y: box.minY + 30, width: box.width - 44, height: 12),
+                         font: .systemFont(ofSize: 9.5), color: .labelColor)
+            }
         }
 
-        drawSessionRing(s, center: NSPoint(x: box.maxX - 17, y: box.midY), radius: 9)
+        drawSessionRing(s, center: NSPoint(x: box.maxX - 19, y: box.minY + 16), radius: 12)
     }
 
     /// The ring on the right of a session block. It carries **two** things at once, which is only
@@ -1132,40 +1155,58 @@ final class PetView: NSView {
     /// length for the context figure means motion has to carry "thinking" on its own, and the comet
     /// does that without ever being mistaken for the fill — it is short, it moves, and it is coral
     /// where the fill is neutral.
+    /// The ring on the right of a session block. It carries **two** things at once, which is only
+    /// legible because they use different channels:
+    ///
+    ///   · how much of the context window is used — a **static** arc from twelve o'clock in a
+    ///     neutral colour that deepens as it fills, with the figure itself in the middle
+    ///   · what the session is doing — **motion and colour**, always coral, always on the ring
+    ///     itself so that it never competes with the number for the centre
+    ///
+    /// The old spinner could not have absorbed the context reading: its legibility came from the arc
+    /// length oscillating between 26° and 290°, so length was already spoken for. Handing length to
+    /// the context figure means motion has to carry "thinking" alone, and it can — the comet is
+    /// short, it moves, and it is coral where the fill is neutral.
     private func drawSessionRing(_ s: SessionActivity, center: NSPoint, radius r: CGFloat) {
-        let lw: CGFloat = 2.6
+        let lw: CGFloat = 2.4
         drawArc(center: center, radius: r, lineWidth: lw,
                 from: 0, to: 360, color: NSColor.labelColor.withAlphaComponent(0.12))
 
         if s.ctxLimit > 0, s.ctxTokens > 0 {
             let frac = min(1, CGFloat(s.ctxTokens) / CGFloat(s.ctxLimit))
             // Grey towards the primary text colour. Written this way rather than "grey to black" so
-            // that dark mode takes care of itself: labelColor is near-white there, so the same
+            // that dark mode needs no special case: labelColor is near-white there, and the same
             // expression reads as grey → white instead of fading into the background.
-            // The 0.8 power lifts the low end — at 10% a nearly invisible arc would look like a fault.
+            // The 0.8 power lifts the low end — at 10% a nearly invisible arc looks like a fault.
             let c = NSColor.labelColor.withAlphaComponent(0.30 + 0.70 * pow(frac, 0.8))
             drawArc(center: center, radius: r, lineWidth: lw,
                     from: -90, to: -90 + 360 * Double(frac), color: c, round: true)
+            // The figure sits in the middle. Without the % sign: "100%" needs 20pt and the clear
+            // space inside the ring is 21.6, which leaves nothing either side, whereas the ring it
+            // is printed inside already says what kind of number it is
+            drawText("\(Int((frac * 100).rounded()))",
+                     in: NSRect(x: center.x - 12, y: center.y - 5.5, width: 24, height: 11),
+                     font: .monospacedDigitSystemFont(ofSize: 8.5, weight: .semibold),
+                     color: .labelColor, align: .center)
         }
 
+        // State lives on the ring, never in the middle — the middle belongs to the number now
         if s.waiting {
-            // Waiting for you: a solid breathing dot in the middle. Distinct from the comet by being
-            // still, central, and a deeper coral
-            let pulse = 0.55 + 0.45 * (0.5 + 0.5 * sin(t * 3.4))
-            NSColor.coralDeep.withAlphaComponent(pulse).setFill()
-            let rr: CGFloat = 3.6
-            NSBezierPath(ovalIn: NSRect(x: center.x - rr, y: center.y - rr,
-                                        width: rr * 2, height: rr * 2)).fill()
+            // Waiting for you: the whole ring breathes coral. Distinct from the comet by covering
+            // the entire circle rather than travelling round it
+            let pulse = 0.35 + 0.65 * (0.5 + 0.5 * sin(t * 3.4))
+            drawArc(center: center, radius: r + 2.6, lineWidth: 1.8,
+                    from: 0, to: 360, color: NSColor.coralDeep.withAlphaComponent(pulse))
         } else if s.busy {
-            // The comet. Drawn last so it passes over the context fill rather than under it
+            // The comet, drawn last so it passes over the context fill rather than under it
             let head = -90 + Double(spinPhase) * 360
             drawArc(center: center, radius: r, lineWidth: lw,
                     from: head - 38, to: head, color: .coralLight, round: true)
         } else if !s.stalled {
+            // Unread: a single coral tick at twelve o'clock, breathing slowly
             let pulse = 0.55 + 0.45 * easeInOut((sin(t * 1.6) + 1) / 2)
-            NSColor.coralLight.withAlphaComponent(pulse).setFill()
-            NSBezierPath(ovalIn: NSRect(x: center.x - 3.2, y: center.y - 3.2,
-                                        width: 6.4, height: 6.4)).fill()
+            drawArc(center: center, radius: r + 2.6, lineWidth: 2.2,
+                    from: -104, to: -76, color: NSColor.coralLight.withAlphaComponent(pulse), round: true)
         }
     }
 
@@ -1176,7 +1217,7 @@ final class PetView: NSView {
         let innerW = card.width - 26
         var y = startY
 
-        drawText("Claude usage", in: NSRect(x: innerX, y: y, width: innerW * 0.6, height: 13),
+        drawText(L("Claude usage", "Claude 用量"), in: NSRect(x: innerX, y: y, width: innerW * 0.6, height: 13),
                  font: .systemFont(ofSize: 9.5, weight: .semibold),
                  color: .labelColor)
         if !model.tier.isEmpty {
@@ -1195,7 +1236,7 @@ final class PetView: NSView {
         // neutral grey, so you can see at a glance that this one is not drawn as a ring.
         let shownRows = model.ringRows
         if model.rows.isEmpty {
-            drawText(model.needsLogin ? "Not signed in — session activity only" : "Usage unavailable",
+            drawText(model.needsLogin ? L("Not signed in — session activity only", "未登录，只显示会话状态") : L("Usage unavailable", "暂时取不到用量"),
                      in: NSRect(x: innerX, y: y, width: innerW, height: 14),
                      font: .systemFont(ofSize: 9.5),
                      color: .secondaryLabelColor)
@@ -1217,7 +1258,7 @@ final class PetView: NSView {
             // "Weekly · Fa…" loses the one thing that row is there to tell you — which model it is.
             // The width comes out of the two number columns, which had spare room: "100%" needs 26pt
             // of the 40 it had, and "Fri 18:27" needs 42 of 54
-            drawText(row.label,
+            drawText(row.displayLabel,
                      in: NSRect(x: innerX + 11, y: y, width: innerW - 11 - 86, height: 14),
                      font: .systemFont(ofSize: 9.5),
                      color: .secondaryLabelColor)
@@ -1240,7 +1281,7 @@ final class PetView: NSView {
             footer = "⚠︎ " + (msg.components(separatedBy: "\n").first ?? msg)
         } else if let last = model.lastFetch {
             let mins = Int(-last.timeIntervalSinceNow / 60)
-            footer = mins <= 0 ? "updated just now" : "updated \(mins) min ago"
+            footer = mins <= 0 ? L("updated just now", "刚刚更新") : L("updated \(mins) min ago", "\(mins) 分钟前更新")
         } else {
             footer = ""
         }
