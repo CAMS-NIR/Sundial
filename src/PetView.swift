@@ -14,6 +14,11 @@ final class PetView: NSView {
     /// The minimise button was pressed, or the sun was clicked while minimised. The window layer
     /// owns the flag and its persistence; this view only reports the gesture.
     var onToggleMinimised: (() -> Void)?
+    /// Off-switch for the minimise button, used only by `docs/make-demo.swift`.
+    /// In the app the button is tied to hover, so it comes and goes with the pointer. A demo clip
+    /// keeps the pointer on the card for most of its length, which pins the button open for most of
+    /// the clip and makes it look like permanent furniture — the one thing about it that is not true.
+    var showsMinimiseButton = true
 
     private var t: CGFloat = 0                 // animation clock
     private var blinkUntil: CGFloat = -1
@@ -646,11 +651,11 @@ final class PetView: NSView {
         if g > 0.004, !model.rows.isEmpty {
             withAlpha(g) { drawGauges(in: card, midY: rowMidY, scale: 0.84 + 0.16 * g) }
         }
-        // Minimise button, top-right. It fades in with the hover detail rather than sitting there
+        // Minimise button, top-left. It fades in with the hover detail rather than sitting there
         // permanently: the top row is already tight, and a control needed only occasionally should
         // not compete with the two dials for attention. Discoverability is covered by the
         // right-click menu, which carries the same item.
-        if e > 0.5, hoverProgress > 0.02, !model.minimised {
+        if showsMinimiseButton, e > 0.5, hoverProgress > 0.02, !model.minimised {
             // Top-left, sitting on the corner, at the size AppKit itself uses. Two numbers taken
             // from the system rather than judged by eye:
             //

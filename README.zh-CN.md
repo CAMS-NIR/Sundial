@@ -130,11 +130,14 @@ xattr -dr com.apple.quarantine /Applications/Sundial.app
 
 ### 其它
 
-- **最小化**：悬停时卡片右上角出现按钮，按下后只剩一颗太阳，且**悬停不会再弹开**；
+- **最小化**：悬停时卡片**左上角**出现按钮——14pt 的圆点，尺寸与横杠比例都取自
+  AppKit 自己的窗口缩小按钮。按下后只剩一颗太阳，且**悬停不会再弹开**；
   点一下太阳恢复。最小化期间若有会话等你回答，太阳会脉动提示，而不强行弹开卡片——
   提醒照样送到，但不推翻你刚做的决定
+- **界面语言**：菜单里的「语言」可选 English / 简体中文 / 跟随系统。默认跟随系统；
+  一旦明确选过，之后改系统语言也不会再覆盖你的选择
 - 右键菜单：登录 / 退出登录、立即刷新、固定展开明细、最小化、打开网页版用量、
-  更通透的玻璃、始终置顶、开机自启、把桌宠移回屏幕中央、退出
+  语言、更通透的玻璃、始终置顶、开机自启、把桌宠移回屏幕中央、退出
 - 菜单最上面显示当前版本号，报问题时先看这个
 - 尊重系统无障碍设置：**减弱动态效果**（关掉跟手位移）、
   **降低透明度**（改画不透明背板）
@@ -208,7 +211,7 @@ src/                       macOS 版（Swift + AppKit）
   ├ Activity.swift          读 Claude Code 会话记录
   ├ Usage.swift             用量接口解析与取数调度
   ├ Auth.swift              OAuth PKCE 与令牌存储
-  ├ Model.swift / Theme.swift
+  ├ Model.swift / Theme.swift / Lang.swift
   └ icon/                   图标生成器
 src-windows/                Windows 版（C# + Avalonia）
   ├ src/Sundial.Core/       纯逻辑，不依赖 UI —— 可在 macOS 上跑测试

@@ -534,7 +534,7 @@ public sealed class PetRenderer
             using (ctx.PushOpacity(g))
                 DrawGauges(ctx, card, rowMidY, 0.84 + 0.16 * g);
         }
-        // Minimise button, top-right. It fades in with the hover detail rather than sitting there
+        // Minimise button, top-left. It fades in with the hover detail rather than sitting there
         // permanently: the top row is already tight, and a control needed only occasionally should
         // not compete with the two dials for attention. Discoverability is covered by the
         // right-click menu, which carries the same item.

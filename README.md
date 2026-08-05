@@ -167,15 +167,20 @@ pretending the work finished.
 
 ### Everything else
 
-- **Minimise.** A button appears in the top-right of the card on hover; press it
-  and everything folds down to the sun alone, and stays there — hovering will not
-  pop it back open. Click the sun to bring the card back. If a session starts
+- **Minimise.** A button appears in the top-left corner of the card on hover —
+  a 14pt disc, the size and glyph proportions AppKit uses for a window's own
+  miniaturise button. Press it and everything folds down to the sun alone, and
+  stays there — hovering will not pop it back open. Click the sun to bring the card back. If a session starts
   waiting on an answer while you are minimised, the sun pulses rather than
   forcing the card open: the reminder still reaches you, without overriding the
   decision you just made.
+- **Interface language.** English or 简体中文, or follow the system, from the
+  Language submenu. Following the system is the default; choosing explicitly
+  sticks, so a later change to the system setting will not override it.
 - Context menu: sign in / sign out, refresh now, keep the usage breakdown open,
-  minimise to just the sun, open the web usage page, clearer glass, always on
-  top, launch at login, bring the pet back to the centre of the screen, quit.
+  minimise to just the sun, open the web usage page, language, clearer glass,
+  always on top, launch at login, bring the pet back to the centre of the
+  screen, quit.
 - The current version number sits at the top of the menu — worth quoting in any
   bug report.
 - System accessibility settings are respected: **Reduce Motion** disables the
@@ -257,7 +262,7 @@ src/                        macOS build (Swift + AppKit)
   ├ Activity.swift          reads Claude Code transcripts
   ├ Usage.swift             usage endpoint parsing and fetch scheduling
   ├ Auth.swift              OAuth PKCE and token storage
-  ├ Model.swift / Theme.swift
+  ├ Model.swift / Theme.swift / Lang.swift
   └ icon/                   icon generator
 src-windows/                Windows build (C# + Avalonia)
   ├ src/Sundial.Core/       pure logic, no UI dependency — testable on macOS

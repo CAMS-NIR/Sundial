@@ -114,18 +114,19 @@ launch at login ｜ quit.
 
 ## 3. Source layout
 
-Seven Swift files under `src/`, about 3,200 lines in total.
+Nine Swift files under `src/`, about 3,800 lines in total.
 
 | File | Lines | Contents |
 |---|---|---|
 | `main.swift` | 10 | Entry point (Swift allows top-level statements in this file only, and it must be compiled last) |
-| `Model.swift` | 48 | `UsageRow` / `PetModel`; `ringRows` decides which allowance each ring shows |
-| `Theme.swift` | 100 | Palette (including colours that follow light/dark), `easeInOut`, `smoothStep`, `drawText` |
-| `Auth.swift` | 346 | OAuth (PKCE, code pasted by hand), token storage, fallback to Claude Code CLI credentials |
-| `Usage.swift` | 445 | `/api/oauth/usage` parsing plus fetch scheduling (refresh / back-off / sign-out policy) |
-| `Activity.swift` | 560 | Session watcher: reads Claude Code transcripts for busy/idle, turn timing, context consumption |
-| `PetView.swift` | 1023 | All drawing and animation state (sun, dials, session blocks, hover detail, accessibility element tree) |
-| `App.swift` | 723 | Window, Liquid Glass, menus, sign-in flow, power and accessibility switches |
+| `Lang.swift` | 46 | Interface language: `L(en, zh)` bilingual literals and `displayLabel`, which keeps `UsageRow.label` an English matching key |
+| `Model.swift` | 55 | `UsageRow` / `PetModel`; `ringRows` decides which allowance each dial shows |
+| `Theme.swift` | 116 | Palette (including colours that follow light/dark), `easeInOut`, `smoothStep`, `drawText` |
+| `Auth.swift` | 351 | OAuth (PKCE, code pasted by hand), token storage, fallback to Claude Code CLI credentials |
+| `Usage.swift` | 450 | `/api/oauth/usage` parsing plus fetch scheduling (refresh / back-off / sign-out policy) |
+| `Activity.swift` | 610 | Session watcher: reads Claude Code transcripts for busy/idle, turn timing, context consumption |
+| `App.swift` | 871 | Window, Liquid Glass, menus, sign-in flow, power and accessibility switches |
+| `PetView.swift` | 1326 | All drawing and animation state (sun, dials, session blocks, hover detail, accessibility element tree) |
 
 `src/icon/` is a standalone icon generator (`make-icons.sh` + `main.swift`). Its
 geometry is copied from the sun part of `drawPet`, so changing the shape of the

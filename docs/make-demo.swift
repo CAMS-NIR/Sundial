@@ -5,7 +5,7 @@
 // Top-level statements are only allowed in a file called main.swift, so copy it somewhere first:
 //
 //   cp docs/make-demo.swift /tmp/main.swift && cd /tmp
-//   swiftc -O main.swift <repo>/src/{PetView,Theme,Model,Activity,Usage,Auth}.swift -o gifgen
+//   swiftc -O main.swift <repo>/src/{PetView,Theme,Model,Activity,Usage,Auth,Lang}.swift -o gifgen
 //   ./gifgen demo.gif             # light GIF
 //   ./gifgen demo-dark.gif dark   # dark GIF
 //   ./gifgen portrait.mp4              # portrait video (1080×1920, 60fps)
@@ -34,6 +34,10 @@ let darkMode = CommandLine.arguments.contains("dark")   // videos default to lig
 /// breathing rate is a constant 1.0 rad/s, so the "how long it stays awake" adjustment knob is gone and the only way
 /// to close the loop is to search for an approximate recurrence point (see findLoopLength)
 let dodge = CommandLine.arguments.contains("dodge")
+// The README is English, and both READMEs embed the same files, so the demo renders in English
+// regardless of what the machine building it is set to. Without this the interface language follows
+// Locale.preferredLanguages and a Chinese Mac silently produces a Chinese GIF for the English page.
+appLang = CommandLine.arguments.contains("zh") ? .zh : .en
 
 // MARK: - Demo data
 
@@ -87,6 +91,10 @@ final class Scene {
         model.rows = demoRows()
         view = PetView(model: model)
         view.clipsToBounds = true   // on a real machine the window clips; off-screen there is no window edge, so clip ourselves
+        // The pointer sits on the card for most of the clip, which would pin the minimise button
+        // open throughout and make it read as permanent furniture. It is a hover control; a demo
+        // that cannot show it appearing and disappearing is better off not showing it at all.
+        view.showsMinimiseButton = false
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: winW, height: 400),
                           styleMask: [.borderless], backing: .buffered, defer: false)
         window.appearance = NSAppearance(named: darkMode ? .darkAqua : .aqua)
