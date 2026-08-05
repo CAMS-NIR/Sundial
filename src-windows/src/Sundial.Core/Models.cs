@@ -5,6 +5,8 @@
 // The semantics line up strictly with the macOS version's Model.swift / Activity.swift; change anything
 // here and both sides have to be changed together.
 
+using System.Globalization;
+
 namespace Sundial.Core;
 
 /// <summary>A single usage limit.</summary>
@@ -103,11 +105,16 @@ public static class ContextLimits
 /// <summary>Compact token counts: 468243 → "468.2k"</summary>
 public static class Format
 {
+    /// <summary>
+    /// InvariantCulture is deliberate. Plain interpolation follows the system locale, so a German or
+    /// French machine renders "823,9k / 1,0M" — a comma where the interface everywhere else uses a
+    /// full stop. The macOS side never had this because it builds the string by hand.
+    /// </summary>
     public static string Tokens(int n) => n switch
     {
-        >= 1_000_000 => $"{n / 1_000_000.0:0.0}M",
-        >= 1_000 => $"{n / 1_000.0:0.0}k",
-        _ => n.ToString(),
+        >= 1_000_000 => (n / 1_000_000.0).ToString("0.0", CultureInfo.InvariantCulture) + "M",
+        >= 1_000 => (n / 1_000.0).ToString("0.0", CultureInfo.InvariantCulture) + "k",
+        _ => n.ToString(CultureInfo.InvariantCulture),
     };
 
     public static string Elapsed(DateTimeOffset? since)
