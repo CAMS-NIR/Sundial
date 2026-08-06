@@ -42,6 +42,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     let watcher = ActivityWatcher()
     var activityTimer: Timer?
     private var activityPolling = false
+    /// The other sun, if it is running. Both builds broadcast on the same channel, so this is how
+    /// the Claude and Codex pets find each other across two processes.
+    private lazy var neighbour: Neighbour = {
+        let n = Neighbour(me: "claude")
+        n.onChange = { [weak self] in self?.petView?.needsDisplay = true }
+        return n
+    }()
+
     private var anchorTopY: CGFloat?       // top edge position the user chose for the window
     private var anchorLeftX: CGFloat?      // left edge position the user chose for the window
     private var hoverSince: Date?          // when the hover started; linger long enough and we count it as you having seen it
@@ -211,6 +219,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         Self.applyLanguage()                      // before anything draws
         model.minimised = Self.minimised          // restore the persisted state on launch
         petView.onToggleMinimised = { [weak self] in self?.toggleMinimised() }
+        petView.onDragEnded = { [weak self] in self?.snapToNeighbour() }
+        announcePosition()
         petView.onMarkRead = { [weak self] id in
             guard let self else { return }
             self.watcher.markRead(id)
@@ -295,6 +305,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         window.setFrame(NSRect(x: newX, y: newY,
                                width: size.width, height: size.height), display: true)
         adjustingHeight = false
+        // The sun slides within the window as the card opens and closes, so its screen position
+        // changes without the window being dragged. Without this the neighbour's idea of where this
+        // sun is would be a frame or two out of date every time the pointer arrives.
+        announcePosition()
         applyGlassShape(for: size)
         // setFrame won't send a make-up mouseExited on behalf of a stationary cursor: recalibrate the hover state by hand after the window shrinks
         if model.hovered, !window.frame.contains(NSEvent.mouseLocation) {
@@ -447,12 +461,64 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc func windowMoved() {
+        announcePosition()
         guard !adjustingHeight else { return }   // programmatic resizing doesn't count as a drag
         anchorTopY = window.frame.maxY
         anchorLeftX = window.frame.minX
         let f = window.frame
         // Store the top-left corner: the height varies with the content, so storing the bottom edge would make it creep upwards on every restart
         UserDefaults.standard.set([f.origin.x, f.maxY], forKey: Self.posKey)
+    }
+
+    // MARK: The other sun
+
+    /// Where this sun is on screen, for the neighbour to line itself up against.
+    ///
+    /// The conversion goes through the window rather than adding offsets by hand: PetView is
+    /// flipped, so its y grows downwards while the screen's grows upwards, and `convert(_:to: nil)`
+    /// is the one step that gets that right without the sign having to be remembered here.
+    private func announcePosition() {
+        guard let petView, window != nil else { return }
+        let inWindow = petView.convert(petView.sunCentreInView, to: nil)
+        neighbour.announce(sunCentre: window.convertPoint(toScreen: inWindow),
+                           frame: window.frame)
+    }
+
+    /// Called when a drag finishes. If it landed near the other sun, slide into place beside it.
+    private func snapToNeighbour() {
+        guard let petView else { return }
+        let inWindow = petView.convert(petView.sunCentreInView, to: nil)
+        let sun = window.convertPoint(toScreen: inWindow)
+        guard let target = neighbour.snapTarget(for: window.frame, sunCentre: sun) else { return }
+
+        var origin = target
+        // Never snap itself off the edge of the screen. The neighbour may be hard against a corner,
+        // and lining up with it would otherwise push this one out of reach.
+        if let vf = (window.screen ?? NSScreen.main)?.visibleFrame {
+            origin.x = min(max(origin.x, vf.minX), vf.maxX - window.frame.width)
+            origin.y = min(max(origin.y, vf.minY), vf.maxY - window.frame.height)
+        }
+        guard abs(origin.x - window.frame.minX) > 0.5 || abs(origin.y - window.frame.minY) > 0.5 else { return }
+
+        // Animated, not teleported: the point of a magnet is that you feel it pull. 0.16s is long
+        // enough to read as movement and short enough not to feel like the window is arguing.
+        adjustingHeight = true          // this is not the user moving it; don't overwrite the anchor
+        NSAnimationContext.runAnimationGroup({ ctx in
+            ctx.duration = 0.16
+            ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            window.animator().setFrameOrigin(origin)
+        }, completionHandler: { [weak self] in
+            guard let self else { return }
+            self.adjustingHeight = false
+            // The snapped position is where the window now lives, so it has to become the anchor the
+            // card grows from and the position remembered for next launch — otherwise the first
+            // hover after a snap would throw it back to where the drag happened to end.
+            self.anchorTopY = self.window.frame.maxY
+            self.anchorLeftX = self.window.frame.minX
+            UserDefaults.standard.set([self.window.frame.origin.x, self.window.frame.maxY],
+                                      forKey: Self.posKey)
+            self.announcePosition()
+        })
     }
 
     func restorePosition() {

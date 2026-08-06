@@ -14,6 +14,22 @@ final class PetView: NSView {
     /// The minimise button was pressed, or the sun was clicked while minimised. The window layer
     /// owns the flag and its persistence; this view only reports the gesture.
     var onToggleMinimised: (() -> Void)?
+    /// Called once a drag of the window has finished, so the app layer can decide whether it landed
+    /// close enough to the other sun to be snapped against it.
+    var onDragEnded: (() -> Void)?
+
+    /// Where the sun is drawn, in view coordinates.
+    ///
+    /// Exposed because it is not derivable from outside: folded the sun is centred in an 88pt
+    /// square, expanded it sits in the top row of a 198pt card, and in between it is interpolating
+    /// between the two. Anything that needs to line something up with the sun — the neighbour
+    /// broadcast, and later the pull between two of them — has to ask rather than assume.
+    var sunCentreInView: NSPoint {
+        let card = bounds
+        let rowMidY = card.minY + 10 + PetView.topRowH / 2
+        // The sun always stays centred, with the two gauges sitting to either side
+        return NSPoint(x: card.midX, y: card.midY + (rowMidY - card.midY) * expandProgress)
+    }
     /// Off-switch for the minimise button, used only by `docs/make-demo.swift`.
     /// In the app the button is tied to hover, so it comes and goes with the pointer. A demo clip
     /// keeps the pointer on the card for most of its length, which pins the button open for most of
@@ -437,10 +453,20 @@ final class PetView: NSView {
         // a drag: a press that moved the window was a drag and must not also restore.
         let before = window?.frame.origin
         window?.performDrag(with: event)
-        if model.minimised, let b = before, let a = window?.frame.origin,
-           abs(a.x - b.x) < 2, abs(a.y - b.y) < 2 {
+        let after = window?.frame.origin
+        let moved = zip([before?.x, before?.y], [after?.x, after?.y])
+            .contains { l, r in
+                guard let l, let r else { return false }
+                return abs(l - r) >= 2
+            }
+        if model.minimised, !moved {
             onToggleMinimised?()
         }
+        // Snapping happens here rather than during the drag on purpose. performDrag runs its own
+        // event loop and keeps setting the window's origin from the pointer for as long as the
+        // button is down, so a correction applied mid-drag is overwritten on the next mouse event —
+        // the window would judder against the pointer instead of clicking into place.
+        if moved { onDragEnded?() }
     }
     override func rightMouseDown(with event: NSEvent) { onRightClick?(event) }
 
@@ -637,9 +663,7 @@ final class PetView: NSView {
         let e = expandProgress
 
         let rowMidY = card.minY + 10 + PetView.topRowH / 2
-        // The sun always stays centred, with the two gauges sitting to either side
-        let petY = card.midY + (rowMidY - card.midY) * e
-        drawPet(center: NSPoint(x: card.midX, y: petY))
+        drawPet(center: sunCentreInView)
 
         // The gauges have to fade out before the window does: if they are still there once the window has
         // nearly narrowed down to just the sun, they get sliced clean off by the window edge, which looks

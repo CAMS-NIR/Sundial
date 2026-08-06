@@ -342,6 +342,73 @@ costs the dial nothing.
 The separate progress bar is gone, and with it the repeated percentage: the dial
 says the same thing at a glance, which the number never did.
 
+### Finding the other sun
+
+Sundial and Sundial for Codex are separate processes from separate repositories,
+so neither can ask the other where it is. They shout instead: `Neighbour.swift`
+posts each app's position on a **distributed notification** and listens for the
+other doing the same. Both builds carry the same file and the same channel name,
+so they find each other with no configuration.
+
+Not a shared file: polling a position that changes sixty times a second during a
+drag means either a stale reading or a pointless disk write per frame. Not an App
+Group either — that needs a paid team identifier to sign against, and these
+builds are ad-hoc signed.
+
+The payload is a flat `|`-separated string rather than a dictionary. Distributed
+notifications serialise their `userInfo` through `distnoted`, which is only
+reliable for property-list types, and a string is the one shape that cannot be got
+wrong. It carries the sender's pid, because **distnoted delivers to the sender as
+well** and an app would otherwise snap to itself.
+
+**What is broadcast is the sun's centre, not the window frame.** The sun does not
+sit in the middle of its window: folded it is centred in an 88 pt square, expanded
+it is in the top row of a 198 pt card, and in the Codex build it moves sideways
+again depending on how many dials there are. `PetView.sunCentreInView` is the one
+definition, used by the drawing code as well, so the two cannot drift apart.
+
+Presence is re-sent on a 3.5 s heartbeat and expires after 12 s. The heartbeat
+exists because `announce` drops identical payloads — without it a sun that had not
+moved for an hour would fall silent and be declared gone. A new launch posts a
+`ping`, and anyone hearing one re-sends immediately; otherwise a freshly started
+app would be blind until the other one happened to move.
+
+### Snapping
+
+`snapTarget` decides where a dropped window should settle. Two rules of different
+kinds:
+
+- **Horizontally the window edges meet**, overlapping by 12 pt. Aligning sun
+  centres at a fixed distance would be wrong the moment one card is expanded: it
+  is 198 pt wide with the sun in the middle, so the neighbour would end up
+  *inside* it. Edge-to-edge gives 76 pt between two folded suns and 131 pt when
+  one is open, which is right in both cases.
+- **Vertically the sun centres align**, because that is the line the eye reads,
+  and the sun's height within the window is not the same folded as expanded.
+
+The 12 pt overlap is what makes it read as "together" rather than "near": two
+folded windows are 88 pt wide, and the sun including its rays is about 54, so
+edge-to-edge with no overlap would leave a 34 pt gap. The overlapping strip is
+transparent in both windows, so neither can steal a click meant for the other.
+
+**The snap is applied after the drag, not during it.** `performDrag` runs its own
+event loop and keeps setting the origin from the pointer for as long as the button
+is down, so a correction applied mid-drag is overwritten on the next mouse event —
+the window judders against the pointer instead of clicking into place. Waiting for
+`performDrag` to return and animating over 0.16 s gives the magnet feel without
+fighting the drag.
+
+Afterwards the snapped position becomes the anchor the card grows from and the
+position remembered for next launch. Without that, the first hover after a snap
+throws the window back to wherever the drag happened to end.
+
+`tests/snap-check.swift` checks the geometry against fixed numbers, so it can be
+verified without two running apps:
+
+```bash
+swiftc -O tests/snap-check.swift src/Neighbour.swift -o /tmp/snapcheck && /tmp/snapcheck
+```
+
 ### Minimising
 
 `model.minimised` overrides everything in `expandTargetValue`, hover included —
